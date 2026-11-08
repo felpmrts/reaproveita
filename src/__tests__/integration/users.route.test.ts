@@ -119,5 +119,23 @@ describe('Users Route - /users/me', () => {
       expect(data.name).toBe('Apenas Nome Modificado');
       expect(data.phone).toBe(testUser.phone); // Telefone continuou intacto
     });
+
+    it('[QA Segurança] deve impedir ID manipulation rejeitando tentativas de injetar ID no payload', async () => {
+      mockAuthenticatedRequest();
+      
+      // Atacante tenta enviar o ID de outra pessoa no corpo da requisição
+      const req = new Request('http://localhost/users/me', {
+        method: 'PUT',
+        body: JSON.stringify({ name: 'Hacker', id: 'id-da-vitima-123' })
+      });
+      const res = await PUT(req);
+      
+      // O Zod com .strict() deve barrar a requisição imediatamente (400 Bad Request)
+      expect(res.status).toBe(400);
+      
+      // Confirma que o banco de dados não sofreu nenhuma alteração
+      const userInDb = await repo.findById(testUser.id);
+      expect(userInDb?.name).toBe(testUser.name); // Nome original intacto
+    });
   });
 });
