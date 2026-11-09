@@ -3,6 +3,8 @@ import { DuplicateEmailError } from '@/repositories/user.repository';
 import { registerUser, ValidationError } from '@/services/auth.service';
 import { RegisterApiResponse } from '@/types/user';
 
+export const maxDuration = 60;
+
 /**
  * Subtask [BE] Endpoint de Registro:
  * Rota POST /auth/register com validação de payload (dados obrigatórios, e-mail válido,

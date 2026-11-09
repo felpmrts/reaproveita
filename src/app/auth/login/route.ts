@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { loginUser, ValidationError, InvalidCredentialsError } from '@/services/auth.service';
 import { RegisterApiResponse } from '@/types/user';
 
+export const maxDuration = 60;
+
 /**
  * Subtask [BE] Endpoints de Login:
  * Rota POST /auth/login com validação de credenciais.
