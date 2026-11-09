@@ -1,18 +1,180 @@
 import Link from 'next/link';
-import { Leaf, Store, HeartHandshake, ArrowRight } from 'lucide-react';
+import { cookies } from 'next/headers';
+import {
+  Leaf,
+  Store,
+  HeartHandshake,
+  ArrowRight,
+  LogIn,
+  User,
+  LogOut,
+  LayoutGrid,
+  Sparkles,
+} from 'lucide-react';
+import { logoutUserAction } from '@/actions/auth.actions';
+import { getAuthenticatedUser } from '@/lib/auth';
 
-export default function HomePage() {
+export default async function HomePage() {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get('reaproveita_session');
+
+  let loggedUser: { name?: string; email?: string; role?: string } | null = null;
+  if (sessionCookie?.value) {
+    try {
+      loggedUser = JSON.parse(sessionCookie.value);
+    } catch {
+      loggedUser = null;
+    }
+  }
+
+  // Busca dados atualizados do banco caso o usuário tenha editado o perfil
+  const dbUser = sessionCookie ? await getAuthenticatedUser() : null;
+  if (dbUser) {
+    loggedUser = {
+      name: dbUser.name,
+      email: dbUser.email,
+      role: dbUser.role,
+    };
+  }
+
+  const isAuthenticated = Boolean(loggedUser);
+
+  // ============================================================================
+  // VISÃO LOGADA: PÁGINA INICIAL / HUB DE FERRAMENTAS
+  // ============================================================================
+  if (isAuthenticated && loggedUser) {
+    const roleLabel =
+      loggedUser.role === 'DONOR'
+        ? 'Doador / Comerciante'
+        : loggedUser.role === 'ADMIN'
+          ? 'Administrador'
+          : 'Receptor / Beneficiário';
+
+    return (
+      <main className="min-h-screen bg-slate-50">
+        {/* Cabeçalho do Hub */}
+        <header className="border-b border-slate-200 bg-white">
+          <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+            <Link href="/" className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white">
+                <Leaf className="h-5 w-5" />
+              </span>
+              <span className="text-xl font-bold tracking-tight text-slate-900">Reaproveita</span>
+            </Link>
+
+            <nav className="flex items-center gap-3">
+              <div className="hidden items-center gap-2 sm:flex">
+                <span className="text-sm text-slate-600">
+                  Olá, <strong className="font-semibold text-slate-900">{loggedUser.name || 'Usuário'}</strong>
+                </span>
+                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                  {roleLabel}
+                </span>
+              </div>
+
+              <Link
+                href="/perfil"
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+              >
+                <User className="h-4 w-4" />
+                Meu Perfil
+              </Link>
+
+              <form action={logoutUserAction}>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sair
+                </button>
+              </form>
+            </nav>
+          </div>
+        </header>
+
+        {/* Conteúdo Principal do Hub */}
+        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+          {/* Banner de Boas-vindas */}
+          <div className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:p-8">
+            <div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                <Sparkles className="h-3.5 w-3.5" />
+                Página Inicial
+              </span>
+              <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                Bem-vindo(a), {loggedUser.name || 'Usuário'}!
+              </h1>
+              <p className="mt-1 text-sm text-slate-600">
+                Esta é a sua central no Reaproveita. Acesse suas ferramentas ou atualize os dados da sua conta.
+              </p>
+            </div>
+
+            <Link
+              href="/perfil"
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-emerald-600 hover:text-emerald-700"
+            >
+              <User className="h-4 w-4 text-emerald-600" />
+              Gerenciar Meu Perfil
+            </Link>
+          </div>
+
+          {/* Hub de Ferramentas (Estrutura vazia pronta para receber os próximos módulos) */}
+          <section className="mt-8">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+                <LayoutGrid className="h-5 w-5 text-emerald-600" />
+                Hub de Ferramentas
+              </h2>
+            </div>
+
+            <div className="flex min-h-[320px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 p-8 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
+                <LayoutGrid className="h-7 w-7" />
+              </div>
+              <h3 className="mt-4 text-lg font-bold text-slate-900">
+                Espaço para Funcionalidades e Ferramentas
+              </h3>
+              <p className="mt-1.5 max-w-md text-sm text-slate-500">
+                Os módulos de lotes, mapa de ofertas, reservas e painéis operacionais serão adicionados aqui.
+              </p>
+              <div className="mt-6">
+                <Link
+                  href="/perfil"
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                >
+                  <User className="h-4 w-4" />
+                  Acessar Meu Perfil
+                </Link>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
+  // ============================================================================
+  // VISÃO PÚBLICA (DESLOGADO): LANDING PAGE
+  // ============================================================================
   return (
     <main className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-2.5">
+          <Link href="/" className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white">
               <Leaf className="h-5 w-5" />
             </span>
             <span className="text-xl font-bold tracking-tight text-slate-900">Reaproveita</span>
-          </div>
+          </Link>
           <nav className="flex items-center gap-3">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            >
+              <LogIn className="h-4 w-4 text-emerald-600" />
+              Entrar
+            </Link>
             <Link
               href="/register"
               className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
@@ -42,6 +204,13 @@ export default function HomePage() {
           >
             Começar agora
             <ArrowRight className="h-4 w-4" />
+          </Link>
+          <Link
+            href="/login"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            <LogIn className="h-4 w-4 text-emerald-600" />
+            Já tenho conta
           </Link>
         </div>
 

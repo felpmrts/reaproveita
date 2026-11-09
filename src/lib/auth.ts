@@ -9,35 +9,37 @@ import { cookies } from 'next/headers';
 export async function getAuthenticatedUser(): Promise<UserEntity | null> {
   const repo = getUserRepository();
 
-  // 1. Comportamento Oficial/Produção: Validar token assinado via Supabase Auth
+  // 1. Tenta validar token assinado via Supabase Auth (caso haja sessão ativa no Supabase Auth)
   if (isSupabaseConfigured()) {
-    const supabase = createSupabaseServerClient();
-    // A função getUser() valida a sessão de forma segura diretamente no servidor
-    const { data, error } = await supabase.auth.getUser();
-    
-    if (error || !data.user || !data.user.email) return null;
-    
-    // Busca o usuário interno usando o e-mail validado pelo Supabase
-    return await repo.findByEmail(data.user.email);
+    try {
+      const supabase = createSupabaseServerClient();
+      const { data, error } = await supabase.auth.getUser();
+
+      if (!error && data.user?.email) {
+        const supabaseUser = await repo.findByEmail(data.user.email);
+        if (supabaseUser) return supabaseUser;
+      }
+    } catch {
+      // Se falhar ou não houver sessão no Supabase Auth, prossegue para o cookie de sessão da aplicação
+    }
   }
-  
-  // 2. Comportamento de Desenvolvimento: Fallback para o cookie legado/inseguro
-  // ATENÇÃO: Isso evita travar a ST03 enquanto a equipe não finaliza a refatoração do login,
-  // mas NUNCA será executado em produção se o Supabase estiver configurado.
-  if (process.env.NODE_ENV !== 'production') {
-    const cookieStore = cookies();
+
+  // 2. Valida o cookie HttpOnly 'reaproveita_session' emitido pelo endpoint POST /auth/login
+  try {
+    const cookieStore = await cookies();
     const sessionCookie = cookieStore.get('reaproveita_session');
-    
+
     if (sessionCookie?.value) {
-      try {
-        const userData = JSON.parse(sessionCookie.value);
-        if (userData.email) {
-          return await repo.findByEmail(userData.email);
-        }
-      } catch (e) {
-        return null;
+      const userData = JSON.parse(sessionCookie.value);
+      if (userData?.email) {
+        return await repo.findByEmail(userData.email);
+      }
+      if (userData?.id) {
+        return await repo.findById(userData.id);
       }
     }
+  } catch {
+    return null;
   }
 
   return null;
