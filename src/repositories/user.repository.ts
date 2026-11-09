@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { CreateUserRecordInput, UserEntity } from '@/types/user';
+import { UpdateUserProfileInput } from '@/schemas/user.schema';
 import { createSupabaseAdminClient, isSupabaseConfigured } from '@/lib/supabase/server';
 
 export class DuplicateEmailError extends Error {
@@ -13,7 +14,9 @@ export class DuplicateEmailError extends Error {
 
 export interface IUserRepository {
   findByEmail(email: string): Promise<UserEntity | null>;
+  findById(id: string): Promise<UserEntity | null>;
   create(input: CreateUserRecordInput): Promise<UserEntity>;
+  update(id: string, input: UpdateUserProfileInput): Promise<UserEntity | null>;
   clear?(): Promise<void>;
 }
 
@@ -30,6 +33,10 @@ export class InMemoryUserRepository implements IUserRepository {
     const userId = this.userIdByEmail.get(normalizedEmail);
     if (!userId) return null;
     return this.usersById.get(userId) ?? null;
+  }
+
+  async findById(id: string): Promise<UserEntity | null> {
+    return this.usersById.get(id) ?? null;
   }
 
   async create(input: CreateUserRecordInput): Promise<UserEntity> {
@@ -57,6 +64,21 @@ export class InMemoryUserRepository implements IUserRepository {
     this.userIdByEmail.set(normalizedEmail, user.id);
 
     return user;
+  }
+
+  async update(id: string, input: UpdateUserProfileInput): Promise<UserEntity | null> {
+    const user = this.usersById.get(id);
+    if (!user) return null;
+
+    const updatedUser: UserEntity = {
+      ...user,
+      ...(input.name !== undefined && { name: input.name }),
+      ...(input.phone !== undefined && { phone: input.phone }),
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.usersById.set(id, updatedUser);
+    return updatedUser;
   }
 
   async clear(): Promise<void> {
@@ -100,6 +122,35 @@ export class SupabaseUserRepository implements IUserRepository {
     };
   }
 
+  async findById(id: string): Promise<UserEntity | null> {
+    const supabase = createSupabaseAdminClient();
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Erro ao consultar usuário por ID: ${error.message}`);
+    }
+
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      authUserId: data.auth_user_id,
+      name: data.name,
+      email: data.email,
+      passwordHash: data.password_hash,
+      role: data.role,
+      phone: data.phone,
+      isActive: data.is_active,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  }
+
   async create(input: CreateUserRecordInput): Promise<UserEntity> {
     const normalizedEmail = input.email.trim().toLowerCase();
     const supabase = createSupabaseAdminClient();
@@ -125,6 +176,50 @@ export class SupabaseUserRepository implements IUserRepository {
       }
       throw new Error(`Erro ao persistir usuário no banco de dados: ${error.message}`);
     }
+
+    return {
+      id: data.id,
+      authUserId: data.auth_user_id,
+      name: data.name,
+      email: data.email,
+      passwordHash: data.password_hash,
+      role: data.role,
+      phone: data.phone,
+      isActive: data.is_active,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  }
+
+  async update(id: string, input: UpdateUserProfileInput): Promise<UserEntity | null> {
+    const supabase = createSupabaseAdminClient();
+    
+    // Constrói objeto de atualização mapeando apenas os campos fornecidos para o formato do banco
+    const updateData: Record<string, any> = {};
+    if (input.name !== undefined) updateData.name = input.name;
+    if (input.phone !== undefined) updateData.phone = input.phone;
+    
+    // Se não houver nada para atualizar, retorna o registro atual
+    if (Object.keys(updateData).length === 0) {
+      return this.findById(id);
+    }
+    
+    // Delega ao banco de dados a atualização do updated_at (por trigger) 
+    // ou faz explicitamente se não houver trigger (assumindo que seja necessário fazer manual)
+    updateData.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('users')
+      .update(updateData)
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Erro ao atualizar usuário no banco de dados: ${error.message}`);
+    }
+
+    if (!data) return null;
 
     return {
       id: data.id,
