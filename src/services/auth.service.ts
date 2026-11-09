@@ -1,5 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
-import { formatZodErrors, registerUserSchema } from '@/schemas/auth.schema';
+import { formatZodErrors, registerUserSchema, loginSchema, LoginInput } from '@/schemas/auth.schema';
 import {
   DuplicateEmailError,
   getUserRepository,
@@ -57,6 +57,15 @@ export class ValidationError extends Error {
   }
 }
 
+export class InvalidCredentialsError extends Error {
+  public readonly code = 'INVALID_CREDENTIALS' as const;
+
+  constructor(message = 'E-mail ou senha inválidos.') {
+    super(message);
+    this.name = 'InvalidCredentialsError';
+  }
+}
+
 /**
  * Serviço de Registro de Usuários (RF01 / RN01).
  * 1. Valida o payload estritamente com Zod (nome, e-mail válido, senha segura, perfil Doador/Receptor).
@@ -92,4 +101,41 @@ export async function registerUser(
   });
 
   return toPublicUser(createdUser);
+}
+
+/**
+ * Serviço de Autenticação de Usuários (RF03).
+ * 1. Valida o payload estritamente com Zod.
+ * 2. Busca o usuário pelo e-mail.
+ * 3. Verifica a senha usando o hash seguro (scrypt).
+ */
+export async function loginUser(
+  rawPayload: unknown,
+  repository: IUserRepository = getUserRepository()
+): Promise<PublicUser> {
+  const parsed = loginSchema.safeParse(rawPayload);
+
+  if (!parsed.success) {
+    throw new ValidationError(formatZodErrors(parsed.error), 'Dados de login inválidos.');
+  }
+
+  const { email, password } = parsed.data;
+
+  // Busca o usuário no banco/repositório
+  const user = await repository.findByEmail(email);
+
+  // Por segurança, se o usuário não existir, ou se a conta estiver inativa,
+  // retornamos o mesmo erro genérico para não vazar informações (User Enumeration).
+  if (!user || !user.isActive) {
+    throw new InvalidCredentialsError();
+  }
+
+  // Verifica se a senha informada bate com o hash salvo
+  const isPasswordValid = verifyPassword(password, user.passwordHash);
+
+  if (!isPasswordValid) {
+    throw new InvalidCredentialsError();
+  }
+
+  return toPublicUser(user);
 }

@@ -112,3 +112,22 @@ export const registerFormSchema = registerUserSchema
 
 export type RegisterUserInput = z.infer<typeof registerUserSchema>;
 export type RegisterFormInput = z.infer<typeof registerFormSchema>;
+
+export const loginSchema = z.object({
+  email: z
+    .string({
+      required_error: 'O e-mail é obrigatório.',
+      invalid_type_error: 'O e-mail deve ser um texto válido.',
+    })
+    .trim()
+    .min(1, 'O e-mail é obrigatório.')
+    .email('Informe um endereço de e-mail válido.')
+    .transform((email) => email.toLowerCase()),
+  password: z
+    .string({
+      required_error: 'A senha é obrigatória.',
+    })
+    .min(1, 'A senha é obrigatória.'),
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;
