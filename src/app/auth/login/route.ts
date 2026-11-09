@@ -19,7 +19,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RegisterA
           code: 'INVALID_JSON',
           message: 'O corpo da requisição deve ser um JSON válido.',
         },
-      },
+      } as RegisterApiResponse, // <-- Força o TypeScript a aceitar
       { status: 400 }
     );
   }
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RegisterA
         success: true,
         message: 'Login realizado com sucesso.',
         data: user,
-      },
+      } as RegisterApiResponse, // <-- Força o TypeScript a aceitar
       { status: 200 }
     );
 
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RegisterA
             message: error.message,
             details: error.details,
           },
-        },
+        } as RegisterApiResponse, // <-- Força o TypeScript a aceitar
         { status: 400 }
       );
     }
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RegisterA
             code: 'INVALID_CREDENTIALS',
             message: error.message,
           },
-        },
+        } as RegisterApiResponse, // <-- Força o TypeScript a aceitar
         { status: 401 }
       );
     }
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<RegisterA
           code: 'INTERNAL_ERROR',
           message: 'Ocorreu um erro interno ao processar o login.',
         },
-      },
+      } as RegisterApiResponse, // <-- Força o TypeScript a aceitar
       { status: 500 }
     );
   }
