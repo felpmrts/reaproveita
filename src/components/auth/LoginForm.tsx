@@ -70,8 +70,8 @@ export function LoginForm() {
       }
 
       // 3. Gerenciamento de Sessão no Client-side
-      // Após o sucesso, redireciona o usuário para a página inicial e atualiza os Server Components
-      router.push('/perfil');
+      // Após o sucesso, redireciona o usuário para a página inicial (Hub) e atualiza os Server Components
+      router.push('/');
       router.refresh();
     } catch {
       setBannerError('Falha de comunicação com o servidor. Tente novamente.');
