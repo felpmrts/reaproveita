@@ -67,7 +67,7 @@ export interface ApiSuccessResponse<T> {
 export interface ApiErrorResponse {
   success: false;
   error: {
-    code: 'VALIDATION_ERROR' | 'EMAIL_ALREADY_EXISTS' | 'INVALID_JSON' | 'INTERNAL_ERROR';
+    code: 'VALIDATION_ERROR' | 'EMAIL_ALREADY_EXISTS' | 'INVALID_JSON' | 'INTERNAL_ERROR' | 'INVALID_CREDENTIALS';
     message: string;
     details?: Record<string, string[]>;
   };
