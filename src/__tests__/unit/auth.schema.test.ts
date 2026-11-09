@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { registerFormSchema, registerUserSchema } from '@/schemas/auth.schema';
+import {
+  registerFormSchema,
+  registerUserSchema,
+  formatZodErrors,
+  loginSchema
+} from '@/schemas/auth.schema';
 
 describe('[QA] Testes Unitários — Schema de Validação de Usuário (registerUserSchema)', () => {
   it('deve validar com sucesso um payload válido de Doador (DONOR) e normalizar o e-mail', () => {
@@ -128,6 +133,51 @@ describe('[QA] Testes Unitários — Schema de Validação de Usuário (register
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues.some((i) => i.path[0] === 'confirmPassword')).toBe(true);
+    }
+  });
+});
+
+// NOVOS TESTES ADICIONADOS PARA A HISTÓRIA 2 (LOGIN)
+
+describe('[QA] Testes Unitários — Schema de Validação de Login (loginSchema)', () => {
+  it('deve validar um payload de login correto', () => {
+    const validData = {
+      email: 'teste@exemplo.com',
+      password: 'Senha@123',
+    };
+
+    const result = loginSchema.safeParse(validData);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.email).toBe('teste@exemplo.com');
+    }
+  });
+
+  it('deve rejeitar e-mail inválido', () => {
+    const invalidData = {
+      email: 'email-invalido',
+      password: 'Senha@123',
+    };
+
+    const result = loginSchema.safeParse(invalidData);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const errors = formatZodErrors(result.error);
+      expect(errors.email).toContain('Informe um endereço de e-mail válido.');
+    }
+  });
+
+  it('deve exigir senha não vazia (mas não valida força da senha no login)', () => {
+    const invalidData = {
+      email: 'teste@exemplo.com',
+      password: '',
+    };
+
+    const result = loginSchema.safeParse(invalidData);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const errors = formatZodErrors(result.error);
+      expect(errors.password).toContain('A senha é obrigatória.');
     }
   });
 });
