@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { CreateEstablishmentInput } from '@/schemas/establishment.schema';
+import { CreateEstablishmentInput, UpdateEstablishmentInput } from '@/schemas/establishment.schema';
 import { createSupabaseAdminClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { EstablishmentEntity, EstablishmentStatus } from '@/types/establishment';
 
@@ -17,6 +17,7 @@ export interface IEstablishmentRepository {
   findByCnpj(cnpj: string): Promise<EstablishmentEntity | null>;
   findByOwner(ownerId: string): Promise<EstablishmentEntity[]>;
   updateStatus(id: string, status: EstablishmentStatus): Promise<EstablishmentEntity | null>;
+  updateOwned(id: string, ownerId: string, patch: UpdateEstablishmentInput): Promise<EstablishmentEntity | null>;
   clear?(): Promise<void>;
 }
 
@@ -62,6 +63,15 @@ export class InMemoryEstablishmentRepository implements IEstablishmentRepository
     const current = this.establishments.get(id);
     if (!current) return null;
     const updated = { ...current, status, updatedAt: new Date().toISOString() };
+    this.establishments.set(id, updated);
+    return updated;
+  }
+
+  async updateOwned(id: string, ownerId: string, patch: UpdateEstablishmentInput): Promise<EstablishmentEntity | null> {
+    const current = this.establishments.get(id);
+    if (!current || current.ownerId !== ownerId) return null;
+
+    const updated = { ...current, ...patch, updatedAt: new Date().toISOString() };
     this.establishments.set(id, updated);
     return updated;
   }
@@ -127,6 +137,20 @@ function isMissingEstablishmentsTableError(error: { code?: string; message?: str
 }
 
 export class SupabaseEstablishmentRepository implements IEstablishmentRepository {
+  async updateOwned(id: string, ownerId: string, patch: UpdateEstablishmentInput): Promise<EstablishmentEntity | null> {
+    const { zipCode, ...fields } = patch;
+    const { data, error } = await createSupabaseAdminClient()
+      .from('establishments')
+      .update({ ...fields, zip_code: zipCode, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('owner_id', ownerId)
+      .select('*')
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    return data ? fromRow(data as EstablishmentRow) : null;
+  }
+
   async create(ownerId: string, input: CreateEstablishmentInput): Promise<EstablishmentEntity> {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
