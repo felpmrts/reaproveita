@@ -3,7 +3,8 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, Crosshair, Loader2, MapPin } from 'lucide-react';
-import { createEstablishmentSchema } from '@/schemas/establishment.schema';
+import type { EstablishmentEntity } from '@/types/establishment';
+import { createEstablishmentSchema, updateEstablishmentSchema } from '@/schemas/establishment.schema';
 import { formatCnpj, formatPhone, formatZipCode } from '@/lib/input-masks';
 
 const initialValues = {
@@ -13,9 +14,23 @@ const initialValues = {
 
 type FormValues = typeof initialValues;
 
-export function EstablishmentForm() {
+export function EstablishmentForm({ establishment }: { establishment?: EstablishmentEntity }) {
   const router = useRouter();
-  const [values, setValues] = useState<FormValues>(initialValues);
+  const [values, setValues] = useState<FormValues>(() => establishment ? {
+    name: establishment.name,
+    email: establishment.email,
+    street: establishment.street,
+    number: establishment.number,
+    neighborhood: establishment.neighborhood,
+    city: establishment.city,
+    state: establishment.state,
+    cnpj: formatCnpj(establishment.cnpj),
+    phone: formatPhone(establishment.phone),
+    zipCode: formatZipCode(establishment.zipCode),
+    complement: establishment.complement ?? '',
+    latitude: String(establishment.latitude ?? ''),
+    longitude: String(establishment.longitude ?? ''),
+  } : initialValues);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [banner, setBanner] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -95,7 +110,10 @@ export function EstablishmentForm() {
     event.preventDefault();
     setBanner(null);
 
-    const result = createEstablishmentSchema.safeParse(values);
+    const { cnpj, ...editableValues } = values;
+    const result = establishment
+      ? updateEstablishmentSchema.safeParse(editableValues)
+      : createEstablishmentSchema.safeParse({ cnpj, ...editableValues });
     if (!result.success) {
       setErrors(result.error.flatten().fieldErrors);
       return;
@@ -103,15 +121,15 @@ export function EstablishmentForm() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('/establishments', {
-        method: 'POST',
+      const response = await fetch(establishment ? `/establishments/${establishment.id}` : '/establishments', {
+        method: establishment ? 'PATCH' : 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(result.data),
       });
       const body = await response.json();
       if (!response.ok) {
         setErrors(body.error?.details ?? {});
-        setBanner(body.error?.message ?? 'Não foi possível cadastrar o estabelecimento.');
+        setBanner(body.error?.message ?? 'Não foi possível salvar o estabelecimento.');
         return;
       }
       router.push('/painel/doador');
@@ -136,6 +154,7 @@ export function EstablishmentForm() {
         aria-label={label}
         type={options?.type ?? 'text'}
         value={values[field]}
+        readOnly={field === 'cnpj' && Boolean(establishment)}
         onChange={(event) => update(field, event.target.value)}
         placeholder={options?.placeholder}
         step={options?.step}
@@ -189,9 +208,9 @@ export function EstablishmentForm() {
         </div>
       </section>
 
-      <button type="submit" disabled={isSubmitting} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">
+      <button type="submit" disabled={isSubmitting || isLocating} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">
         {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-        {isSubmitting ? 'Enviando...' : 'Cadastrar estabelecimento'}
+        {isSubmitting ? 'Enviando...' : establishment ? 'Salvar alterações' : 'Cadastrar estabelecimento'}
       </button>
     </form>
   );
