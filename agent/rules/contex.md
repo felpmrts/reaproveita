@@ -152,3 +152,38 @@ O sistema possui três papéis (roles) distintos, que determinam o acesso a rota
 5. **Painel do Doador (`/painel/doador`)**: Gestão do estabelecimento, formulário de publicação rápida de lotes, fila de reservas ativas, botão de confirmação rápida de retirada presencial (mediante código do receptor) e métricas locais.
 6. **Painel do Receptor (`/painel/receptor`)**: Lista de reservas ativas (exibindo o código/identificador para apresentar na coleta presencial), botão de cancelamento e histórico de alimentos já resgatados.
 7. **Painel Administrativo (`/painel/admin`)**: Console de governança para aprovar/auditar estabelecimentos, moderar lotes, visualizar logs de auditoria (RN15) e acompanhar os dashboards consolidados da plataforma.
+
+---
+
+## 9. REGISTRO DE DESENVOLVIMENTO E MÓDULOS IMPLEMENTADOS (CONTEXTO PARA AGENTES DE IA)
+
+### 9.1. História 1 & 2 — Cadastro, Autenticação, Sessão e Perfil (`RF01`, `RF03`, `RF04`, `RN01`)
+* **Modelagem e Persistência:**
+  * Migration SQL: `supabase/migrations/20261106000001_create_users_profiles_schema.sql`
+  * Repositório de Usuários (`InMemoryUserRepository` para dev/testes e `SupabaseUserRepository` para produção): `src/repositories/user.repository.ts`
+* **Serviços, Schemas e BFF:**
+  * Schemas Zod (`registerUserSchema`, `loginSchema`, `updateUserProfileSchema`): `src/schemas/auth.schema.ts` e `src/schemas/user.schema.ts`
+  * Serviços de domínio e hash `scrypt`: `src/services/auth.service.ts` e `src/services/user.service.ts`
+  * Server Actions e Route Handlers: `src/actions/auth.actions.ts`, `src/app/auth/register/route.ts`, `src/app/auth/login/route.ts`, `src/app/users/me/route.ts`
+* **Interface e Telas:**
+  * Telas `/register`, `/login` e `/perfil` com validação de formulários e sessão via Cookie `HttpOnly` (`reaproveita_session`).
+
+### 9.2. História 3 — Controle de Acesso Baseado em Papéis / RBAC (`RN03`, `RN14`)
+* **Guardas de Servidor e Respostas Padronizadas (`401` / `403 Forbidden`):**
+  * Módulo central de autorização: `src/lib/rbac.ts`
+    * `requireAuth()`: exige sessão autenticada e conta ativa (`401 Unauthorized` caso ausente).
+    * `requireRole(allowedRoles)`: valida se o perfil do usuário (`DONOR`, `RECEIVER`, `ADMIN`) pertence aos papéis autorizados; caso contrário, lança `ForbiddenError` convertido em resposta padronizada HTTP `403 Forbidden` (`{ success: false, error: { code: 'FORBIDDEN', message } }`).
+    * `requireEstablishmentOwnership(user, establishmentOwnerId)`: garante que usuários `DONOR` gerenciem **apenas** estabelecimentos aos quais estão vinculados (`RN03`).
+    * `requireReservationOwnership(user, reservationReceiverId)`: garante que usuários `RECEIVER` gerenciem **apenas** suas próprias reservas.
+* **Endpoints Protegidos por Papel e Vínculo:**
+  * Repositório de suporte a recursos protegidos por propriedade: `src/repositories/rbac-resources.repository.ts`
+  * Gestão de estabelecimentos pelo Doador vinculado (`GET/PATCH /api/donor/establishments/[id]`): `src/app/api/donor/establishments/[id]/route.ts`
+  * Gestão de reservas pelo Receptor titular (`GET/PATCH /api/receiver/reservations/[id]`): `src/app/api/receiver/reservations/[id]/route.ts`
+  * Operações administrativas exclusivas para `ADMIN` (`GET/POST /api/admin/operations`): `src/app/api/admin/operations/route.ts`
+* **Proteção de Rotas Privadas e Ocultação de Menus no Cliente:**
+  * Middleware (`src/middleware.ts`): bloqueia acesso não autenticado a `/perfil` e `/painel/*` (redirecionando para `/login`) e restringe `/painel/doador` (`DONOR`), `/painel/receptor` (`RECEIVER`) e `/painel/admin` (`ADMIN`), redirecionando acessos não autorizados para `/acesso-negado`.
+  * Navegação condicional por papel (`src/components/auth/RoleNavigation.tsx` integrada em `src/app/page.tsx`): renderiza exclusivamente os menus e atalhos autorizados para o papel do usuário logado, ocultando elementos visuais restritos aos demais perfis.
+  * Páginas protegidas no servidor: `src/app/painel/doador/page.tsx`, `src/app/painel/receptor/page.tsx`, `src/app/painel/admin/page.tsx` e `src/app/acesso-negado/page.tsx`.
+* **Testes Automatizados de Segurança e RBAC:**
+  * Integração (`src/__tests__/integration/rbac.route.test.ts`): valida bloqueio `403 Forbidden` quando Receptor tenta disparar operações de Administrador ou Doador, validação de vínculo de estabelecimento do Doador (`RN03`) e titularidade de reserva do Receptor.
+  * Unitários/Componentes (`src/__tests__/unit/role-navigation.test.tsx`): valida ocultação de menus restritos por perfil e regras de redirecionamento do middleware.

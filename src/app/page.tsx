@@ -13,12 +13,14 @@ import {
 } from 'lucide-react';
 import { logoutUserAction } from '@/actions/auth.actions';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { RoleNavigation } from '@/components/auth/RoleNavigation';
+import { UserRole } from '@/types/user';
 
 export default async function HomePage() {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get('reaproveita_session');
 
-  let loggedUser: { name?: string; email?: string; role?: string } | null = null;
+  let loggedUser: { name?: string; email?: string; role?: UserRole } | null = null;
   if (sessionCookie?.value) {
     try {
       loggedUser = JSON.parse(sessionCookie.value);
@@ -43,10 +45,15 @@ export default async function HomePage() {
   // VISÃO LOGADA: PÁGINA INICIAL / HUB DE FERRAMENTAS
   // ============================================================================
   if (isAuthenticated && loggedUser) {
+    const activeRole: UserRole =
+      loggedUser.role === 'DONOR' || loggedUser.role === 'ADMIN' || loggedUser.role === 'RECEIVER'
+        ? loggedUser.role
+        : 'RECEIVER';
+
     const roleLabel =
-      loggedUser.role === 'DONOR'
+      activeRole === 'DONOR'
         ? 'Doador / Comerciante'
-        : loggedUser.role === 'ADMIN'
+        : activeRole === 'ADMIN'
           ? 'Administrador'
           : 'Receptor / Beneficiário';
 
@@ -106,7 +113,8 @@ export default async function HomePage() {
                 Bem-vindo(a), {loggedUser.name || 'Usuário'}!
               </h1>
               <p className="mt-1 text-sm text-slate-600">
-                Esta é a sua central no Reaproveita. Acesse suas ferramentas ou atualize os dados da sua conta.
+                Esta é a sua central no Reaproveita. Acesse suas ferramentas autorizadas para o perfil de{' '}
+                <strong>{roleLabel}</strong> ou atualize os dados da sua conta.
               </p>
             </div>
 
@@ -119,35 +127,16 @@ export default async function HomePage() {
             </Link>
           </div>
 
-          {/* Hub de Ferramentas (Estrutura vazia pronta para receber os próximos módulos) */}
+          {/* Hub de Ferramentas com controle visual de RBAC (RN14) */}
           <section className="mt-8">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
                 <LayoutGrid className="h-5 w-5 text-emerald-600" />
-                Hub de Ferramentas
+                Hub de Ferramentas ({roleLabel})
               </h2>
             </div>
 
-            <div className="flex min-h-[320px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/60 p-8 text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
-                <LayoutGrid className="h-7 w-7" />
-              </div>
-              <h3 className="mt-4 text-lg font-bold text-slate-900">
-                Espaço para Funcionalidades e Ferramentas
-              </h3>
-              <p className="mt-1.5 max-w-md text-sm text-slate-500">
-                Os módulos de lotes, mapa de ofertas, reservas e painéis operacionais serão adicionados aqui.
-              </p>
-              <div className="mt-6">
-                <Link
-                  href="/perfil"
-                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-                >
-                  <User className="h-4 w-4" />
-                  Acessar Meu Perfil
-                </Link>
-              </div>
-            </div>
+            <RoleNavigation role={activeRole} />
           </section>
         </div>
       </main>

@@ -50,13 +50,13 @@ export interface CreateUserRecordInput {
   name: string;
   email: string;
   passwordHash: string;
-  role: RegisterableRole;
+  role: UserRole;
   phone?: string | null;
   authUserId?: string | null;
 }
 
 /**
- * Estrutura padronizada de resposta da API de autenticação.
+ * Estrutura padronizada de resposta da API de autenticação e autorização.
  */
 export interface ApiSuccessResponse<T> {
   success: true;
@@ -64,10 +64,20 @@ export interface ApiSuccessResponse<T> {
   data: T;
 }
 
+export type ApiErrorCode =
+  | 'VALIDATION_ERROR'
+  | 'EMAIL_ALREADY_EXISTS'
+  | 'INVALID_JSON'
+  | 'INTERNAL_ERROR'
+  | 'INVALID_CREDENTIALS'
+  | 'UNAUTHORIZED'
+  | 'FORBIDDEN'
+  | 'NOT_FOUND';
+
 export interface ApiErrorResponse {
   success: false;
   error: {
-    code: 'VALIDATION_ERROR' | 'EMAIL_ALREADY_EXISTS' | 'INVALID_JSON' | 'INTERNAL_ERROR' | 'INVALID_CREDENTIALS';
+    code: ApiErrorCode;
     message: string;
     details?: Record<string, string[]>;
   };
