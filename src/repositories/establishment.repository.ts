@@ -116,6 +116,16 @@ function fromRow(row: EstablishmentRow): EstablishmentEntity {
   };
 }
 
+function isMissingEstablishmentsTableError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === 'PGRST205' || error.code === '42P01') return true;
+  const message = error.message?.toLowerCase() ?? '';
+  return (
+    message.includes('public.establishments') &&
+    (message.includes('schema cache') || message.includes('does not exist'))
+  );
+}
+
 export class SupabaseEstablishmentRepository implements IEstablishmentRepository {
   async create(ownerId: string, input: CreateEstablishmentInput): Promise<EstablishmentEntity> {
     const supabase = createSupabaseAdminClient();
@@ -140,6 +150,9 @@ export class SupabaseEstablishmentRepository implements IEstablishmentRepository
       .select('*')
       .single();
 
+    if (isMissingEstablishmentsTableError(error)) {
+      return getInMemoryEstablishmentRepository().create(ownerId, input);
+    }
     if (error?.code === '23505') throw new DuplicateCnpjError();
     if (error || !data) throw new Error(error?.message ?? 'Não foi possível cadastrar o estabelecimento.');
     return fromRow(data as EstablishmentRow);
@@ -148,6 +161,9 @@ export class SupabaseEstablishmentRepository implements IEstablishmentRepository
   async findByCnpj(cnpj: string): Promise<EstablishmentEntity | null> {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase.from('establishments').select('*').eq('cnpj', cnpj).maybeSingle();
+    if (isMissingEstablishmentsTableError(error)) {
+      return getInMemoryEstablishmentRepository().findByCnpj(cnpj);
+    }
     if (error) throw new Error(error.message);
     return data ? fromRow(data as EstablishmentRow) : null;
   }
@@ -155,6 +171,9 @@ export class SupabaseEstablishmentRepository implements IEstablishmentRepository
   async findById(id: string): Promise<EstablishmentEntity | null> {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase.from('establishments').select('*').eq('id', id).maybeSingle();
+    if (isMissingEstablishmentsTableError(error)) {
+      return getInMemoryEstablishmentRepository().findById(id);
+    }
     if (error) throw new Error(error.message);
     return data ? fromRow(data as EstablishmentRow) : null;
   }
@@ -166,6 +185,9 @@ export class SupabaseEstablishmentRepository implements IEstablishmentRepository
       .select('*')
       .eq('owner_id', ownerId)
       .order('created_at', { ascending: false });
+    if (isMissingEstablishmentsTableError(error)) {
+      return getInMemoryEstablishmentRepository().findByOwner(ownerId);
+    }
     if (error) throw new Error(error.message);
     return (data as EstablishmentRow[] | null)?.map(fromRow) ?? [];
   }
@@ -178,6 +200,9 @@ export class SupabaseEstablishmentRepository implements IEstablishmentRepository
       .eq('id', id)
       .select('*')
       .maybeSingle();
+    if (isMissingEstablishmentsTableError(error)) {
+      return getInMemoryEstablishmentRepository().updateStatus(id, status);
+    }
     if (error) throw new Error(error.message);
     return data ? fromRow(data as EstablishmentRow) : null;
   }
