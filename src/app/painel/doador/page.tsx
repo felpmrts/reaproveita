@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Store, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Store, ArrowLeft, ShieldCheck, Plus } from 'lucide-react';
 import { ForbiddenError, UnauthorizedError, requireRole } from '@/lib/rbac';
-import { getRbacResourceRepository } from '@/repositories/rbac-resources.repository';
+import { getEstablishmentRepository } from '@/repositories/establishment.repository';
 
 export default async function PainelDoadorPage() {
   let user;
@@ -14,8 +14,7 @@ export default async function PainelDoadorPage() {
     redirect('/');
   }
 
-  const repo = getRbacResourceRepository();
-  const establishments = await repo.findEstablishmentsByOwner(user.id);
+  const establishments = await getEstablishmentRepository().findByOwner(user.id);
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">
@@ -36,7 +35,7 @@ export default async function PainelDoadorPage() {
             <div>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Acesso Exclusivo: Doador (DONOR)
+                Acesso Exclusivo: Doador
               </span>
               <h1 className="text-2xl font-bold text-slate-900">Painel do Doador</h1>
             </div>
@@ -44,13 +43,18 @@ export default async function PainelDoadorPage() {
 
           <p className="mt-3 text-sm text-slate-600">
             Olá, <strong>{user.name}</strong>. Aqui você gerencia apenas os estabelecimentos
-            comerciais aos quais sua conta está vinculada (RN03).
+            comerciais aos quais sua conta está vinculada.
           </p>
 
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <h2 className="text-sm font-semibold text-slate-800">
-              Estabelecimentos Vinculados ({establishments.length})
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-800">
+                Estabelecimentos Vinculados ({establishments.length})
+              </h2>
+              <Link href="/painel/doador/estabelecimentos/novo" className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700">
+                <Plus className="h-3.5 w-3.5" />Cadastrar estabelecimento
+              </Link>
+            </div>
             {establishments.length === 0 ? (
               <p className="mt-1 text-xs text-slate-500">
                 Nenhum estabelecimento vinculado ao seu identificador ({user.id}) até o momento.
@@ -63,7 +67,7 @@ export default async function PainelDoadorPage() {
                     className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm shadow-sm"
                   >
                     <span className="font-medium text-slate-900">{est.name}</span>
-                    <span className="text-xs text-slate-500">{est.address}</span>
+                    <span className="text-xs text-slate-500">{est.city} - {est.state} · {est.status}</span>
                   </li>
                 ))}
               </ul>

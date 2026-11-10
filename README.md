@@ -79,3 +79,12 @@ Conforme documentado em [`agent/rules/contex.md`](./agent/rules/contex.md) e nos
   - Testes unitários de schema e payloads inválidos: [`src/__tests__/unit/auth.schema.test.ts`](./src/__tests__/unit/auth.schema.test.ts)
   - Testes de integração da rota `POST /auth/register` e unicidade de e-mail (`RN01`): [`src/__tests__/integration/register.route.test.ts`](./src/__tests__/integration/register.route.test.ts)
   - Testes de componente da tela de cadastro: [`src/__tests__/unit/register-form.test.tsx`](./src/__tests__/unit/register-form.test.tsx)
+
+## Entregas — ST05 / SCRUM-16: Cadastro de Estabelecimento (RF02 / RN02 / RN03)
+
+- Migration com CNPJ único, endereço, localização PostGIS obrigatória e status de aprovação.
+- Endpoint canônico protegido `GET/POST /establishments`, restrito ao perfil `DONOR` e vinculado ao usuário autenticado; o caminho anterior permanece como alias.
+- Tela mobile-first em `/painel/doador/estabelecimentos/novo` integrada ao painel do doador.
+- Validação Zod, persistência Supabase com fallback em memória e testes unitários, de integração e de componente.
+- Trava de domínio `requireApprovedEstablishmentForPublication`, que bloqueia estabelecimentos `PENDING`, `REJECTED` ou `SUSPENDED` e também valida o vínculo do Doador antes da publicação.
+- Máscaras progressivas para CNPJ, telefone e CEP, além de preenchimento do endereço por geocodificação reversa após consentimento explícito do usuário.
