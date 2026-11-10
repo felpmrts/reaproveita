@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
-import { POST } from '@/app/establishments/route';
-import { GET, PATCH } from '@/app/establishments/[id]/route';
-import { getInMemoryEstablishmentRepository } from '@/repositories/establishment.repository';
+
+
+import { GET, POST } from '@/app/establishments/route';
+import { GET as GETById, PATCH } from '@/app/establishments/[id]/route';
+import {
+  getInMemoryEstablishmentRepository,
+  SupabaseEstablishmentRepository,
+} from '@/repositories/establishment.repository';
+
 import { getInMemoryUserRepository } from '@/repositories/user.repository';
+import * as supabaseServer from '@/lib/supabase/server';
 import { UserEntity } from '@/types/user';
 
 vi.mock('next/headers', () => ({ cookies: vi.fn() }));
@@ -90,7 +97,7 @@ describe('POST /establishments', () => {
       name: 'Outro doador', email: 'outro@test.com', passwordHash: 'hash', role: 'DONOR',
     });
     authenticate(otherDonor);
-    expect((await GET(new NextRequest(url), context)).status).toBe(403);
+    expect((await GETById(new NextRequest(url), context)).status).toBe(403);
     expect((await patch({ name: 'Alteração indevida' })).status).toBe(403);
 
     authenticate(donor);
@@ -99,7 +106,7 @@ describe('POST /establishments', () => {
     expect((await patch({ latitude: 91 })).status).toBe(400);
     expect((await patch({ phone: '(34) 99999-1234', complement: '', latitude: -19, longitude: -49 })).status).toBe(200);
 
-    const response = await GET(new NextRequest(url), context);
+    const response = await GETById(new NextRequest(url), context);
     expect(response.status).toBe(200);
     expect((await response.json()).data).toMatchObject({
       name: payload.name,
@@ -113,4 +120,44 @@ describe('POST /establishments', () => {
     });
   });
 
+  it('faz fallback para o repositório em memória quando a tabela public.establishments ainda não existe no Supabase (PGRST205)', async () => {
+    const missingTableError = {
+      code: 'PGRST205',
+      message: "Could not find the table 'public.establishments' in the schema cache",
+    };
+
+    const mockChain = {
+      select: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({ data: null, error: missingTableError }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: missingTableError }),
+      single: vi.fn().mockResolvedValue({ data: null, error: missingTableError }),
+    };
+
+    const spy = vi.spyOn(supabaseServer, 'createSupabaseAdminClient').mockReturnValue({
+      from: vi.fn().mockReturnValue(mockChain),
+    } as unknown as ReturnType<typeof supabaseServer.createSupabaseAdminClient>);
+
+    try {
+      const repo = new SupabaseEstablishmentRepository();
+      const initialList = await repo.findByOwner(donor.id);
+      expect(initialList).toEqual([]);
+
+      const created = await repo.create(donor.id, {
+        ...payload,
+        cnpj: '11222333000181',
+        phone: '34999990000',
+        zipCode: '38400100',
+      });
+      expect(created.ownerId).toBe(donor.id);
+
+      const listAfterCreate = await repo.findByOwner(donor.id);
+      expect(listAfterCreate).toHaveLength(1);
+      expect(listAfterCreate[0].id).toBe(created.id);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
