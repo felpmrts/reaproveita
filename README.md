@@ -58,33 +58,3 @@ Conforme documentado em [`agent/rules/contex.md`](./agent/rules/contex.md) e nos
    ```bash
    docker compose run --rm app npm test
    ```
-
----
-
-## Entregas — História: Cadastro de Usuários (RF01 / RN01)
-
-- **[BE] Modelagem e schema de usuário:**
-  - Migration SQL PostgreSQL/Supabase: [`supabase/migrations/20261106000001_create_users_profiles_schema.sql`](./supabase/migrations/20261106000001_create_users_profiles_schema.sql)
-  - Tipagem de domínio: [`src/types/user.ts`](./src/types/user.ts)
-  - Schemas Zod: [`src/schemas/auth.schema.ts`](./src/schemas/auth.schema.ts)
-  - Repositório com garantia de unicidade de e-mail (`RN01`): [`src/repositories/user.repository.ts`](./src/repositories/user.repository.ts)
-- **[BE] Endpoint de Registro (`POST /auth/register`):**
-  - Route Handler: [`src/app/auth/register/route.ts`](./src/app/auth/register/route.ts) (e espelho em [`src/app/api/auth/register/route.ts`](./src/app/api/auth/register/route.ts))
-  - Server Action (BFF): [`src/actions/auth.actions.ts`](./src/actions/auth.actions.ts)
-  - Serviço de domínio e hash seguro (`scrypt`): [`src/services/auth.service.ts`](./src/services/auth.service.ts)
-- **[FE] Tela de Cadastro (`/register`):**
-  - Página: [`src/app/register/page.tsx`](./src/app/register/page.tsx)
-  - Componente de formulário interativo com seletor visual Doador/Receptor e validação em tempo real: [`src/components/auth/RegisterForm.tsx`](./src/components/auth/RegisterForm.tsx)
-- **[QA] Testes de Validação:**
-  - Testes unitários de schema e payloads inválidos: [`src/__tests__/unit/auth.schema.test.ts`](./src/__tests__/unit/auth.schema.test.ts)
-  - Testes de integração da rota `POST /auth/register` e unicidade de e-mail (`RN01`): [`src/__tests__/integration/register.route.test.ts`](./src/__tests__/integration/register.route.test.ts)
-  - Testes de componente da tela de cadastro: [`src/__tests__/unit/register-form.test.tsx`](./src/__tests__/unit/register-form.test.tsx)
-
-## Entregas — ST05 / SCRUM-16: Cadastro de Estabelecimento (RF02 / RN02 / RN03)
-
-- Migration com CNPJ único, endereço, localização PostGIS obrigatória e status de aprovação.
-- Endpoint canônico protegido `GET/POST /establishments`, restrito ao perfil `DONOR` e vinculado ao usuário autenticado; o caminho anterior permanece como alias.
-- Tela mobile-first em `/painel/doador/estabelecimentos/novo` integrada ao painel do doador.
-- Validação Zod, persistência Supabase com fallback em memória e testes unitários, de integração e de componente.
-- Trava de domínio `requireApprovedEstablishmentForPublication`, que bloqueia estabelecimentos `PENDING`, `REJECTED` ou `SUSPENDED` e também valida o vínculo do Doador antes da publicação.
-- Máscaras progressivas para CNPJ, telefone e CEP, além de preenchimento do endereço por geocodificação reversa após consentimento explícito do usuário.
