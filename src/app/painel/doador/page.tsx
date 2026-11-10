@@ -46,6 +46,15 @@ export default async function PainelDoadorPage() {
             comerciais aos quais sua conta está vinculada.
           </p>
 
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Link href="/painel/doador/lotes/novo" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700">
+              <Plus className="h-4 w-4" />Publicar lote
+            </Link>
+            <Link href="/painel/doador/lotes" className="inline-flex h-9 items-center rounded-lg border border-emerald-200 px-3 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">
+              Minhas ofertas
+            </Link>
+          </div>
+
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-slate-800">
@@ -66,7 +75,12 @@ export default async function PainelDoadorPage() {
                     key={est.id}
                     className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm shadow-sm"
                   >
-                    <span className="font-medium text-slate-900">{est.name}</span>
+                    <span className="text-slate-900">
+                      {est.name} ·{' '}
+                      <Link href={`/painel/doador/estabelecimentos/${est.id}`} className="font-medium text-emerald-700 hover:underline">
+                        Gerenciar
+                      </Link>
+                    </span>
                     <span className="text-xs text-slate-500">{est.city} - {est.state} · {est.status}</span>
                   </li>
                 ))}

@@ -65,3 +65,11 @@ export const createEstablishmentSchema = z
   .strict();
 
 export type CreateEstablishmentInput = z.infer<typeof createEstablishmentSchema>;
+
+export const updateEstablishmentSchema = createEstablishmentSchema
+  .omit({ cnpj: true })
+  .extend({ complement: z.string().trim().max(120).transform((value) => value || null).nullable() })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Informe ao menos um campo para atualizar.');
+
+export type UpdateEstablishmentInput = z.infer<typeof updateEstablishmentSchema>;
