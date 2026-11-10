@@ -75,7 +75,7 @@ export function FoodBatchForm({ establishments }: { establishments: Array<{ id: 
       <div className="mt-4 space-y-4">
         <p className="text-emerald-800" role="status">Lote publicado com sucesso.</p>
         <Link
-          href="/painel/doador"
+          href="/painel/doador/lotes"
           className="inline-flex rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
         >
           Voltar ao painel
