@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { POST } from '@/app/establishments/route';
+import { GET, PATCH } from '@/app/establishments/[id]/route';
 import { getInMemoryEstablishmentRepository } from '@/repositories/establishment.repository';
 import { getInMemoryUserRepository } from '@/repositories/user.repository';
 import { UserEntity } from '@/types/user';
@@ -71,4 +72,45 @@ describe('POST /establishments', () => {
     expect(body.error.code).toBe('VALIDATION_ERROR');
     expect(body.error.details.cnpj).toBeDefined();
   });
+
+  it('consulta e atualiza o estabelecimento cadastrado pelo titular', async () => {
+    authenticate(donor);
+    const created = await POST(new NextRequest('http://localhost/establishments', {
+      method: 'POST', body: JSON.stringify({ ...payload, complement: 'Sala 1' }),
+    }));
+    expect(created.status).toBe(201);
+    const { data } = await created.json();
+    const context = { params: { id: data.id } };
+    const url = `http://localhost/establishments/${data.id}`;
+    const patch = (body: object) => PATCH(new NextRequest(url, {
+      method: 'PATCH', body: JSON.stringify(body),
+    }), context);
+
+    const otherDonor = await userRepository.create({
+      name: 'Outro doador', email: 'outro@test.com', passwordHash: 'hash', role: 'DONOR',
+    });
+    authenticate(otherDonor);
+    expect((await GET(new NextRequest(url), context)).status).toBe(403);
+    expect((await patch({ name: 'Alteração indevida' })).status).toBe(403);
+
+    authenticate(donor);
+    expect((await patch({ status: 'APPROVED' })).status).toBe(400);
+    expect((await patch({ cnpj: '11222333000181' })).status).toBe(400);
+    expect((await patch({ latitude: 91 })).status).toBe(400);
+    expect((await patch({ phone: '(34) 99999-1234', complement: '', latitude: -19, longitude: -49 })).status).toBe(200);
+
+    const response = await GET(new NextRequest(url), context);
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      name: payload.name,
+      cnpj: '11222333000181',
+      status: 'PENDING',
+      phone: '34999991234',
+      complement: null,
+      latitude: -19,
+      longitude: -49,
+      responsibles: [{ id: donor.id, name: donor.name }],
+    });
+  });
+
 });
