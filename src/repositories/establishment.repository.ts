@@ -36,7 +36,11 @@ export class InMemoryEstablishmentRepository implements IEstablishmentRepository
       complement: input.complement ?? null,
       latitude: input.latitude,
       longitude: input.longitude,
-      status: 'PENDING',
+      status: process.env.NODE_ENV === 'development'
+        && process.env.DEV_APPROVE_LOCAL_ESTABLISHMENTS === 'true'
+        && !isSupabaseConfigured()
+        ? 'APPROVED'
+        : 'PENDING',
       createdAt: now,
       updatedAt: now,
     };

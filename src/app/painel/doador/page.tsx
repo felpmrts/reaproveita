@@ -46,6 +46,10 @@ export default async function PainelDoadorPage() {
             comerciais aos quais sua conta está vinculada.
           </p>
 
+          <Link href="/painel/doador/lotes/novo" className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+            <Plus className="h-4 w-4" />Publicar lote
+          </Link>
+
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-slate-800">
