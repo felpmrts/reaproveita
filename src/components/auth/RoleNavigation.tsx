@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { Store, HeartHandshake, ShieldCheck, ArrowRight } from 'lucide-react';
+import { Store, HeartHandshake, ShieldCheck, ArrowRight, PackagePlus } from 'lucide-react';
 import { UserRole } from '@/types/user';
 
 export interface RoleMenuItem {
@@ -16,8 +16,15 @@ export const ROLE_MENU_ITEMS: readonly RoleMenuItem[] = [
     id: 'donor-panel',
     label: 'Meus Estabelecimentos (Painel do Doador)',
     description:
-      'Gerencie exclusivamente os estabelecimentos comerciais aos quais você está vinculado e publique lotes excedentes.',
+      'Gerencie exclusivamente os estabelecimentos comerciais aos quais você está vinculado.',
     href: '/painel/doador',
+    allowedRoles: ['DONOR'],
+  },
+  {
+    id: 'publish-batch',
+    label: 'Publicar lote de alimentos',
+    description: 'Ofereça alimentos excedentes de um estabelecimento aprovado e informe a validade e os horários de retirada.',
+    href: '/painel/doador/lotes/novo',
     allowedRoles: ['DONOR'],
   },
   {
@@ -59,8 +66,9 @@ export function RoleNavigation({ role }: RoleNavigationProps) {
   return (
     <div data-testid="role-navigation" className="grid grid-cols-1 gap-6 md:grid-cols-2">
       {visibleItems.map((item) => {
-        const Icon =
-          role === 'DONOR' ? Store : role === 'ADMIN' ? ShieldCheck : HeartHandshake;
+        const isPublication = item.id === 'publish-batch';
+        const panelIcon = role === 'DONOR' ? Store : role === 'ADMIN' ? ShieldCheck : HeartHandshake;
+        const Icon = isPublication ? PackagePlus : panelIcon;
 
         return (
           <div
@@ -81,7 +89,7 @@ export function RoleNavigation({ role }: RoleNavigationProps) {
                 href={item.href}
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
               >
-                Acessar Painel
+                {isPublication ? 'Publicar lote' : 'Acessar Painel'}
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
