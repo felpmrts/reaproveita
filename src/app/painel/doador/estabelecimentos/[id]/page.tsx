@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { EstablishmentForm } from '@/components/establishments/EstablishmentForm';
 import { ForbiddenError, requireRole, UnauthorizedError } from '@/lib/rbac';
 import { getEstablishmentRepository } from '@/repositories/establishment.repository';
+import { ArrowLeft } from 'lucide-react';
 
 export default async function ManageEstablishmentPage({ params }: { params: { id: string } }) {
   const user = await requireRole(['DONOR']).catch((error: unknown) => {
@@ -19,7 +20,8 @@ export default async function ManageEstablishmentPage({ params }: { params: { id
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">
       <div className="mx-auto max-w-4xl">
-        <Link href="/painel/doador" className="text-sm font-semibold text-emerald-700">
+        <Link href="/painel/doador" className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+          <ArrowLeft className="h-4 w-4" />
           Voltar ao Painel do Doador
         </Link>
         <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">

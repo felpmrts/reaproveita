@@ -2,6 +2,8 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { POST } from '@/app/food-batches/route';
+import { PATCH } from '@/app/food-batches/[id]/route';
+import { listAvailableFoodBatches, listDonorFoodBatches } from '@/repositories/food-batch.repository';
 import { getInMemoryEstablishmentRepository } from '@/repositories/establishment.repository';
 import { getInMemoryUserRepository } from '@/repositories/user.repository';
 import type { UserEntity } from '@/types/user';
@@ -74,4 +76,40 @@ it.each([
 ])('rejeita dados inválidos (%j)', async (overrides) => {
   await establishments.updateStatus(establishmentId, 'APPROVED');
   expect((await publish(overrides)).status).toBe(400);
+});
+
+it('edita, inativa e encerra uma oferta sem expor o lote indisponível ao receptor', async () => {
+  await establishments.updateStatus(establishmentId, 'APPROVED');
+  const response = await publish();
+  expect(response.status).toBe(201);
+  const { data: { id } } = await response.json();
+  const update = (body: object) => PATCH(new NextRequest(`http://localhost/food-batches/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }), { params: { id } });
+
+  expect(await listAvailableFoodBatches()).toEqual(expect.arrayContaining([expect.objectContaining({ id })]));
+
+  const otherDonor = await users.create({
+    name: 'Outro doador', email: 'outro@test.com', passwordHash: 'hash', role: 'DONOR',
+  });
+  authenticate(otherDonor);
+  expect(await listDonorFoodBatches(otherDonor.id)).toEqual([]);
+  expect((await update({ revision: 0, status: 'INACTIVE' })).status).toBe(404);
+
+  authenticate(donor);
+  expect((await update({ revision: 0, availableQuantity: 100 })).status).toBe(400);
+  const edited = await update({ revision: 0, name: 'Pão integral fatiado' });
+  expect(edited.status).toBe(200);
+  expect((await edited.json()).data).toMatchObject({ name: 'Pão integral fatiado', revision: 1 });
+  expect((await update({ revision: 0, status: 'INACTIVE' })).status).toBe(409);
+
+  expect((await update({ revision: 1, status: 'INACTIVE' })).status).toBe(200);
+  expect((await listAvailableFoodBatches()).some((batch) => batch.id === id)).toBe(false);
+  expect(await listDonorFoodBatches(donor.id)).toEqual([
+    expect.objectContaining({ id, status: 'INACTIVE', availableQuantity: 10, revision: 2 }),
+  ]);
+
+  expect((await update({ revision: 2, status: 'CLOSED' })).status).toBe(200);
+  expect((await update({ revision: 3, name: 'Alteração posterior' })).status).toBe(409);
 });

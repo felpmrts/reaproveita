@@ -20,6 +20,7 @@ describe('Proteção de Rotas Privadas e Menus Condicionais por Papel (Subtask 3
 
       expect(screen.getByTestId('menu-card-donor-panel')).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'Publicar lote' })).toHaveAttribute('href', '/painel/doador/lotes/novo');
+      expect(screen.getByRole('link', { name: 'Gerenciar ofertas' })).toHaveAttribute('href', '/painel/doador/lotes');
       expect(screen.queryByTestId('menu-card-receiver-panel')).not.toBeInTheDocument();
       expect(screen.queryByTestId('menu-card-admin-panel')).not.toBeInTheDocument();
     });
@@ -33,7 +34,7 @@ describe('Proteção de Rotas Privadas e Menus Condicionais por Papel (Subtask 3
     });
 
     it('getVisibleMenuItemsForRole deve filtrar estritamente os itens permitidos por papel', () => {
-      expect(getVisibleMenuItemsForRole('DONOR').map((i) => i.href)).toEqual(['/painel/doador', '/painel/doador/lotes/novo']);
+      expect(getVisibleMenuItemsForRole('DONOR').map((i) => i.href)).toEqual(['/painel/doador', '/painel/doador/lotes/novo', '/painel/doador/lotes']);
       expect(getVisibleMenuItemsForRole('RECEIVER').map((i) => i.href)).toEqual([
         '/painel/receptor',
       ]);
