@@ -68,7 +68,17 @@ export default async function PainelReceptorPage() {
               <ul className="mt-2 space-y-2">
                 {offers.map((offer) => (
                   <li key={offer.id} className="rounded-lg bg-white px-3 py-2 text-sm">
-                    <strong>{offer.name}</strong> · {offer.category} · {offer.availableQuantity} unidade(s)
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <strong>{offer.name}</strong> · {offer.category} · {offer.availableQuantity} unidade(s)
+                      </div>
+                      <Link
+                        href={`/lotes/${offer.id}`}
+                        className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
+                      >
+                        Ver detalhes
+                      </Link>
+                    </div>
                     <p className="mt-1 break-words text-slate-600">{offer.description}</p>
                     <dl className="mt-3 grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-3">
                       <div>
