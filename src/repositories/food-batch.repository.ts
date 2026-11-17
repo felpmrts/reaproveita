@@ -36,6 +36,19 @@ export async function listDonorFoodBatches(donorId: string): Promise<FoodBatch[]
   return data as FoodBatch[];
 }
 
+export async function findFoodBatchById(id: string): Promise<FoodBatch | null> {
+  if (!useSupabase()) {
+    const batch = store.foodBatches?.get(id);
+    if (!batch) return null;
+    return { ...batch, status: batch.status ?? 'ACTIVE', revision: batch.revision ?? 0 };
+  }
+
+  const { data, error } = await createSupabaseAdminClient().from('food_batches').select(selection)
+    .eq('id', id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as FoodBatch | null) ?? null;
+}
+
 export async function listAvailableFoodBatches(): Promise<FoodBatch[]> {
   const now = new Date();
   if (!useSupabase()) {
