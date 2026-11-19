@@ -1,6 +1,14 @@
 import React from 'react';
 import Link from 'next/link';
-import { Store, HeartHandshake, ShieldCheck, ArrowRight, PackagePlus, ClipboardList } from 'lucide-react';
+import {
+  Store,
+  HeartHandshake,
+  ShieldCheck,
+  ArrowRight,
+  PackagePlus,
+  ClipboardList,
+  ShoppingBag,
+} from 'lucide-react';
 import { UserRole } from '@/types/user';
 
 export interface RoleMenuItem {
@@ -40,6 +48,16 @@ export const ROLE_MENU_ITEMS: readonly RoleMenuItem[] = [
     icon: ClipboardList,
     action: 'Gerenciar ofertas',
     allowedRoles: ['DONOR'],
+  },
+  {
+    id: 'receiver-catalog',
+    label: 'Catálogo de Ofertas Disponíveis',
+    description:
+      'Explore lotes ativos elegíveis para reserva, acompanhe a disponibilidade atualizada e acesse os detalhes.',
+    href: '/explorar',
+    icon: ShoppingBag,
+    action: 'Explorar ofertas',
+    allowedRoles: ['RECEIVER'],
   },
   {
     id: 'receiver-panel',

@@ -1,16 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleAuthorizationError, requireRole } from '@/lib/rbac';
 import { FoodBatchPublicationConflict, saveFoodBatch } from '@/repositories/food-batch.repository';
-import { publishFoodBatchSchema } from '@/schemas/food-batch.schema';
+import {
+  parseFoodBatchCatalogSearchParams,
+  publishFoodBatchSchema,
+} from '@/schemas/food-batch.schema';
 import {
   EstablishmentNotApprovedError,
   EstablishmentNotFoundError,
   EstablishmentOwnershipError,
   requireApprovedEstablishmentForPublication,
 } from '@/services/establishment.service';
+import { listActiveFoodBatchCatalog } from '@/services/food-batch.service';
+
+export const dynamic = 'force-dynamic';
 
 function failure(status: number, code: string, message: string, details?: unknown) {
   return NextResponse.json({ success: false, error: { code, message, details } }, { status });
+}
+
+export async function GET(): Promise<NextResponse>;
+export async function GET(request: NextRequest): Promise<NextResponse>;
+export async function GET(request?: NextRequest): Promise<NextResponse> {
+  try {
+    const searchParams =
+      request?.nextUrl?.searchParams ??
+      (request?.url ? new URL(request.url).searchParams : new URLSearchParams());
+    const parsed = parseFoodBatchCatalogSearchParams(searchParams);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Revise os filtros informados.',
+            details: parsed.error.flatten().fieldErrors,
+          },
+        },
+        {
+          status: 400,
+          headers: { 'Cache-Control': 'no-store' },
+        }
+      );
+    }
+
+    const catalog = await listActiveFoodBatchCatalog(parsed.data);
+    return NextResponse.json(
+      {
+        success: true,
+        data: catalog.items,
+        meta: {
+          total: catalog.total,
+          updatedAt: catalog.updatedAt,
+        },
+      },
+      {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      }
+    );
+  } catch {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Não foi possível carregar o catálogo de ofertas.',
+        },
+      },
+      {
+        status: 500,
+        headers: { 'Cache-Control': 'no-store' },
+      }
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {

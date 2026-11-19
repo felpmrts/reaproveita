@@ -3,11 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import {
-  AlertTriangle,
   ArrowLeft,
-  Ban,
   CalendarClock,
-  CheckCircle2,
   Clock,
   Mail,
   MapPin,
@@ -19,37 +16,12 @@ import {
 import type {
   FoodBatchDetails,
   FoodBatchUnavailableReason,
-  UrgencyLevel,
 } from '@/services/food-batch.service';
-
-const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', {
-  dateStyle: 'short',
-  timeStyle: 'short',
-  timeZone: 'America/Sao_Paulo',
-});
-
-const URGENCY_STYLES: Record<UrgencyLevel, { badge: string; icon: typeof Clock }> = {
-  CRITICAL: {
-    badge: 'border-rose-200 bg-rose-50 text-rose-800',
-    icon: AlertTriangle,
-  },
-  HIGH: {
-    badge: 'border-amber-200 bg-amber-50 text-amber-800',
-    icon: AlertTriangle,
-  },
-  MEDIUM: {
-    badge: 'border-yellow-200 bg-yellow-50 text-yellow-800',
-    icon: Clock,
-  },
-  LOW: {
-    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    icon: CheckCircle2,
-  },
-  EXPIRED: {
-    badge: 'border-slate-300 bg-slate-100 text-slate-700',
-    icon: Ban,
-  },
-};
+import {
+  URGENCY_STYLES,
+  formatDateTime,
+  formatUrgencyDescription,
+} from './food-batch-format';
 
 const UNAVAILABLE_MESSAGES: Record<FoodBatchUnavailableReason, { title: string; description: string }> = {
   EXPIRED: {
@@ -70,12 +42,6 @@ const UNAVAILABLE_MESSAGES: Record<FoodBatchUnavailableReason, { title: string; 
   },
 };
 
-function formatDateTime(iso: string): string {
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return 'Data indisponível';
-  return dateTimeFormatter.format(parsed);
-}
-
 function formatAddress(establishment: NonNullable<FoodBatchDetails['establishment']>): string {
   const complement = establishment.complement ? `, ${establishment.complement}` : '';
   return `${establishment.street}, ${establishment.number}${complement} — ${establishment.neighborhood}, ${establishment.city}/${establishment.state} · CEP ${establishment.zipCode}`;
@@ -83,7 +49,7 @@ function formatAddress(establishment: NonNullable<FoodBatchDetails['establishmen
 
 export function FoodBatchDetailsView({
   details,
-  backHref = '/painel/receptor',
+  backHref = '/explorar',
 }: {
   details: FoodBatchDetails;
   backHref?: string;
@@ -97,10 +63,7 @@ export function FoodBatchDetailsView({
     ? UNAVAILABLE_MESSAGES[details.unavailableReason]
     : null;
 
-  const urgencyDescription =
-    details.urgency.level === 'EXPIRED'
-      ? details.urgency.label
-      : `${details.urgency.label} · ~${details.urgency.hoursRemaining}h restante(s)`;
+  const urgencyDescription = formatUrgencyDescription(details.urgency);
 
   function handleReservePreview() {
     const clamped = Math.min(Math.max(1, quantity), details.availableQuantity);

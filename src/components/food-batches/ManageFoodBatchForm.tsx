@@ -8,6 +8,7 @@ const statuses = {
   ACTIVE: { label: 'Ativa', style: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
   INACTIVE: { label: 'Inativa', style: 'border-amber-200 bg-amber-50 text-amber-900' },
   CLOSED: { label: 'Encerrada', style: 'border-slate-200 bg-slate-100 text-slate-700' },
+  EXPIRED: { label: 'Expirada', style: 'border-red-200 bg-red-50 text-red-800' },
 };
 const badgeClass = 'inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold';
 const dateFormatter = new Intl.DateTimeFormat('pt-BR');
@@ -21,6 +22,7 @@ export function ManageFoodBatchForm({ offer }: { offer: FoodBatch }) {
   const [now, setNow] = useState<number | null>(null);
   const expiresAt = Date.parse(batch.expiresAt);
   const expired = now !== null && expiresAt <= now;
+  const isImmutable = batch.status === 'CLOSED' || batch.status === 'EXPIRED';
   const status = statuses[batch.status];
 
   useEffect(() => {
@@ -81,8 +83,10 @@ export function ManageFoodBatchForm({ offer }: { offer: FoodBatch }) {
           <p className="mt-0.5 break-words text-sm text-slate-600">{batch.category}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {expired && <span className={badgeClass + ' border-red-200 bg-red-50 text-red-800'}>Vencida</span>}
-          {(!expired || batch.status !== 'ACTIVE') && (
+          {expired && batch.status !== 'EXPIRED' && (
+            <span className={badgeClass + ' border-red-200 bg-red-50 text-red-800'}>Vencida</span>
+          )}
+          {(batch.status === 'EXPIRED' || !expired || batch.status !== 'ACTIVE') && (
             <span className={badgeClass + ' ' + status.style}>{status.label}</span>
           )}
         </div>
@@ -122,7 +126,7 @@ export function ManageFoodBatchForm({ offer }: { offer: FoodBatch }) {
       {feedback && (
         <p role={feedback.error ? 'alert' : 'status'} className="mt-2 text-sm">{feedback.message}</p>
       )}
-      {editing && batch.status !== 'CLOSED' && (
+      {editing && !isImmutable && (
         <form onSubmit={save} className="mt-4 space-y-3 text-sm">
           <label className="block">Nome do alimento
             <input name="name" defaultValue={batch.name} required maxLength={120} className={inputClass} />
@@ -141,7 +145,7 @@ export function ManageFoodBatchForm({ offer }: { offer: FoodBatch }) {
           </button>
         </form>
       )}
-      {batch.status !== 'CLOSED' && (
+      {!isImmutable && (
         <div className="mt-4 flex flex-wrap gap-2 text-sm font-semibold">
           <button type="button" disabled={pending} onClick={() => setEditing(!editing)} className="rounded-lg border px-3 py-2">
             {editing ? 'Cancelar edição' : 'Editar'}

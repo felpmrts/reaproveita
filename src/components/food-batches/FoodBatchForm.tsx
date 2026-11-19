@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
+import { FOOD_BATCH_CATEGORIES } from '@/schemas/food-batch.schema';
 
 const fields = [
   { name: 'name', label: 'Nome do alimento', maxLength: 120 },
@@ -11,16 +12,7 @@ const fields = [
   { name: 'pickupEndsAt', label: 'Fim da retirada', type: 'date' },
 ];
 
-const categories = [
-  'Frutas, verduras e legumes',
-  'Grãos, cereais e leguminosas',
-  'Pães e produtos de padaria',
-  'Laticínios e ovos',
-  'Carnes e pescados',
-  'Refeições prontas',
-  'Bebidas',
-  'Outros',
-];
+const categories = FOOD_BATCH_CATEGORIES;
 
 const control = 'mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900';
 
