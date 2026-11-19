@@ -14,6 +14,7 @@ export class DuplicateCnpjError extends Error {
 export interface IEstablishmentRepository {
   create(ownerId: string, input: CreateEstablishmentInput): Promise<EstablishmentEntity>;
   findById(id: string): Promise<EstablishmentEntity | null>;
+  findByIds(ids: string[]): Promise<EstablishmentEntity[]>;
   findByCnpj(cnpj: string): Promise<EstablishmentEntity | null>;
   findByOwner(ownerId: string): Promise<EstablishmentEntity[]>;
   updateStatus(id: string, status: EstablishmentStatus): Promise<EstablishmentEntity | null>;
@@ -57,6 +58,13 @@ export class InMemoryEstablishmentRepository implements IEstablishmentRepository
 
   async findById(id: string): Promise<EstablishmentEntity | null> {
     return this.establishments.get(id) ?? null;
+  }
+
+  async findByIds(ids: string[]): Promise<EstablishmentEntity[]> {
+    const uniqueIds = Array.from(new Set(ids));
+    return uniqueIds
+      .map((id) => this.establishments.get(id))
+      .filter((establishment): establishment is EstablishmentEntity => Boolean(establishment));
   }
 
   async findByOwner(ownerId: string): Promise<EstablishmentEntity[]> {
@@ -204,6 +212,19 @@ export class SupabaseEstablishmentRepository implements IEstablishmentRepository
     }
     if (error) throw new Error(error.message);
     return data ? fromRow(data as EstablishmentRow) : null;
+  }
+
+  async findByIds(ids: string[]): Promise<EstablishmentEntity[]> {
+    const uniqueIds = Array.from(new Set(ids));
+    if (uniqueIds.length === 0) return [];
+
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase.from('establishments').select('*').in('id', uniqueIds);
+    if (isMissingEstablishmentsTableError(error)) {
+      return getInMemoryEstablishmentRepository().findByIds(uniqueIds);
+    }
+    if (error) throw new Error(error.message);
+    return (data as EstablishmentRow[] | null)?.map(fromRow) ?? [];
   }
 
   async findByOwner(ownerId: string): Promise<EstablishmentEntity[]> {

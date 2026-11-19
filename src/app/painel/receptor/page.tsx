@@ -1,12 +1,12 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { HeartHandshake, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { HeartHandshake, ArrowLeft, ShieldCheck, ArrowRight } from 'lucide-react';
+import { FoodBatchCatalog } from '@/components/food-batches/FoodBatchCatalog';
 import { ForbiddenError, UnauthorizedError, requireRole } from '@/lib/rbac';
-import { listAvailableFoodBatches } from '@/repositories/food-batch.repository';
-import { getEstablishmentRepository } from '@/repositories/establishment.repository';
 import { getRbacResourceRepository } from '@/repositories/rbac-resources.repository';
+import { listActiveFoodBatchCatalog } from '@/services/food-batch.service';
 
-const offerDate = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo' });
+export const dynamic = 'force-dynamic';
 
 export default async function PainelReceptorPage() {
   let user;
@@ -19,16 +19,10 @@ export default async function PainelReceptorPage() {
   }
 
   const repo = getRbacResourceRepository();
-  const [reservations, offers] = await Promise.all([
+  const [reservations, catalog] = await Promise.all([
     repo.findReservationsByReceiver(user.id),
-    listAvailableFoodBatches(),
+    listActiveFoodBatchCatalog(),
   ]);
-  const establishmentRepository = getEstablishmentRepository();
-  const establishmentIds = Array.from(new Set(offers.map(({ establishmentId }) => establishmentId)));
-  const establishmentNames = new Map(await Promise.all(establishmentIds.map(async (id) => {
-    const establishment = await establishmentRepository.findById(id);
-    return [id, establishment?.name] as const;
-  })));
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">
@@ -61,37 +55,21 @@ export default async function PainelReceptorPage() {
           </p>
 
           <section className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <h2 className="text-sm font-semibold text-slate-800">Ofertas disponíveis</h2>
-            {offers.length === 0 ? (
-              <p className="mt-1 text-sm text-slate-600">Nenhuma oferta disponível no momento.</p>
-            ) : (
-              <ul className="mt-2 space-y-2">
-                {offers.map((offer) => (
-                  <li key={offer.id} className="rounded-lg bg-white px-3 py-2 text-sm">
-                    <strong>{offer.name}</strong> · {offer.category} · {offer.availableQuantity} unidade(s)
-                    <p className="mt-1 break-words text-slate-600">{offer.description}</p>
-                    <dl className="mt-3 grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-3">
-                      <div>
-                        <dt className="text-xs text-slate-600">Ofertado por</dt>
-                        <dd className="break-words font-medium text-slate-900">
-                          {establishmentNames.get(offer.establishmentId) ?? 'Estabelecimento indisponível'}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-slate-600">Validade</dt>
-                        <dd className="font-medium text-slate-900">{offerDate.format(new Date(offer.expiresAt))}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-slate-600">Período de retirada</dt>
-                        <dd className="font-medium text-slate-900">
-                          {offerDate.format(new Date(offer.pickupStartsAt))} a {offerDate.format(new Date(offer.pickupEndsAt))}
-                        </dd>
-                      </div>
-                    </dl>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-800">Ofertas disponíveis</h2>
+              <Link
+                href="/explorar"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
+              >
+                Abrir catálogo completo
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+            <FoodBatchCatalog
+              initialOffers={catalog.items}
+              initialUpdatedAt={catalog.updatedAt}
+              embedded
+            />
           </section>
 
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
