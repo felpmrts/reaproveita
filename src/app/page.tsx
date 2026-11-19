@@ -158,6 +158,12 @@ export default async function HomePage() {
           </Link>
           <nav className="flex items-center gap-3">
             <Link
+              href="/explorar"
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+            >
+              Ver ofertas
+            </Link>
+            <Link
               href="/login"
               className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
             >
@@ -188,11 +194,17 @@ export default async function HomePage() {
 
         <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Link
-            href="/register"
+            href="/explorar"
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
           >
-            Começar agora
+            Ver ofertas
             <ArrowRight className="h-4 w-4" />
+          </Link>
+          <Link
+            href="/register"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            Começar agora
           </Link>
           <Link
             href="/login"

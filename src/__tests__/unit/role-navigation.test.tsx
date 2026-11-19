@@ -7,9 +7,11 @@ import { middleware } from '@/middleware';
 
 describe('Proteção de Rotas Privadas e Menus Condicionais por Papel (Subtask 3 - História 3)', () => {
   describe('RoleNavigation - Ocultação de menus restritos a outros papéis', () => {
-    it('deve exibir apenas o menu do Receptor e ocultar menus de Doador e Administrador para perfil RECEIVER', () => {
+    it('deve exibir apenas os menus do Receptor e ocultar menus de Doador e Administrador para perfil RECEIVER', () => {
       render(<RoleNavigation role="RECEIVER" />);
 
+      expect(screen.getByTestId('menu-card-receiver-catalog')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Explorar ofertas' })).toHaveAttribute('href', '/explorar');
       expect(screen.getByTestId('menu-card-receiver-panel')).toBeInTheDocument();
       expect(screen.queryByTestId('menu-card-donor-panel')).not.toBeInTheDocument();
       expect(screen.queryByTestId('menu-card-admin-panel')).not.toBeInTheDocument();
@@ -21,6 +23,7 @@ describe('Proteção de Rotas Privadas e Menus Condicionais por Papel (Subtask 3
       expect(screen.getByTestId('menu-card-donor-panel')).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'Publicar lote' })).toHaveAttribute('href', '/painel/doador/lotes/novo');
       expect(screen.getByRole('link', { name: 'Gerenciar ofertas' })).toHaveAttribute('href', '/painel/doador/lotes');
+      expect(screen.queryByTestId('menu-card-receiver-catalog')).not.toBeInTheDocument();
       expect(screen.queryByTestId('menu-card-receiver-panel')).not.toBeInTheDocument();
       expect(screen.queryByTestId('menu-card-admin-panel')).not.toBeInTheDocument();
     });
@@ -30,12 +33,14 @@ describe('Proteção de Rotas Privadas e Menus Condicionais por Papel (Subtask 3
 
       expect(screen.getByTestId('menu-card-admin-panel')).toBeInTheDocument();
       expect(screen.queryByTestId('menu-card-donor-panel')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('menu-card-receiver-catalog')).not.toBeInTheDocument();
       expect(screen.queryByTestId('menu-card-receiver-panel')).not.toBeInTheDocument();
     });
 
     it('getVisibleMenuItemsForRole deve filtrar estritamente os itens permitidos por papel', () => {
       expect(getVisibleMenuItemsForRole('DONOR').map((i) => i.href)).toEqual(['/painel/doador', '/painel/doador/lotes/novo', '/painel/doador/lotes']);
       expect(getVisibleMenuItemsForRole('RECEIVER').map((i) => i.href)).toEqual([
+        '/explorar',
         '/painel/receptor',
       ]);
       expect(getVisibleMenuItemsForRole('ADMIN').map((i) => i.href)).toEqual(['/painel/admin']);
