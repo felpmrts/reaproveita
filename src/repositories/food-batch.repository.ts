@@ -539,6 +539,9 @@ export interface FoodBatchReservation {
   createdAt: string;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
+  completedAt?: string | null;
+  completedBy?: string | null;
+  pickupConfirmationRequestId?: string | null;
 }
 
 export interface FoodBatchReservationHistoryEntry {
@@ -619,6 +622,11 @@ function reservationFromRow(row: Record<string, unknown>): FoodBatchReservation 
     createdAt: String(row.created_at),
     cancelledAt: row.cancelled_at ? String(row.cancelled_at) : null,
     cancellationReason: row.cancellation_reason ? String(row.cancellation_reason) : null,
+    completedAt: row.completed_at ? String(row.completed_at) : null,
+    completedBy: row.completed_by ? String(row.completed_by) : null,
+    pickupConfirmationRequestId: row.pickup_confirmation_request_id
+      ? String(row.pickup_confirmation_request_id)
+      : null,
   };
 }
 
@@ -857,6 +865,277 @@ export async function cancelFoodBatchReservation(
     restoredToBatch,
     restoredQuantity,
     historyEntry,
+  };
+}
+
+export type PickupConfirmationErrorCode =
+  | 'NOT_FOUND'
+  | 'FORBIDDEN'
+  | 'RESERVATION_ALREADY_COMPLETED'
+  | 'RESERVATION_CANCELLED'
+  | 'RESERVATION_EXPIRED'
+  | 'RESERVATION_UNFIT';
+
+export class PickupConfirmationError extends Error {
+  public readonly code: PickupConfirmationErrorCode;
+  public readonly statusCode: 403 | 404 | 409;
+
+  constructor(code: PickupConfirmationErrorCode, message?: string) {
+    const defaults: Record<
+      PickupConfirmationErrorCode,
+      { statusCode: 403 | 404 | 409; message: string }
+    > = {
+      NOT_FOUND: {
+        statusCode: 404,
+        message: 'Reserva não encontrada para o código informado.',
+      },
+      FORBIDDEN: {
+        statusCode: 403,
+        message:
+          'Acesso negado. Apenas o Doador responsável pelo estabelecimento pode confirmar esta retirada.',
+      },
+      RESERVATION_ALREADY_COMPLETED: {
+        statusCode: 409,
+        message: 'A retirada desta reserva já foi confirmada anteriormente.',
+      },
+      RESERVATION_CANCELLED: {
+        statusCode: 409,
+        message: 'Não é possível confirmar a retirada de uma reserva cancelada.',
+      },
+      RESERVATION_EXPIRED: {
+        statusCode: 409,
+        message: 'Esta reserva está fora da validade ou da janela de retirada e não pode ser confirmada.',
+      },
+      RESERVATION_UNFIT: {
+        statusCode: 409,
+        message: 'Este lote não está apto para consumo e não pode ter retirada confirmada.',
+      },
+    };
+    super(message ?? defaults[code].message);
+    this.name = 'PickupConfirmationError';
+    this.code = code;
+    this.statusCode = defaults[code].statusCode;
+  }
+}
+
+export interface ConfirmFoodBatchPickupResult {
+  reservation: FoodBatchReservation;
+  historyEntry: FoodBatchReservationHistoryEntry;
+  idempotentReplay: boolean;
+}
+
+export interface CompletedFoodRescuedMetrics {
+  completedReservationsCount: number;
+  rescuedUnits: number;
+}
+
+/**
+ * Confirma atomicamente a retirada presencial de uma reserva ativa e válida (ST19 / RN11 / RN12 / RN15).
+ * Suporta idempotência por requestId para retentativas de rede e bloqueia duplicidade com 409.
+ */
+export async function confirmFoodBatchPickup(
+  reservationId: string,
+  donorId: string,
+  options?: {
+    requestId?: string;
+    allowedEstablishmentIds?: Set<string>;
+    now?: Date;
+  }
+): Promise<ConfirmFoodBatchPickupResult> {
+  if (useSupabase()) {
+    const { data, error } = await createSupabaseAdminClient().rpc('confirm_food_batch_pickup', {
+      p_reservation_id: reservationId,
+      p_donor_id: donorId,
+      p_request_id: options?.requestId ?? null,
+    });
+
+    if (error) {
+      const msg = error.message ?? '';
+      if (error.code === 'P0002' || msg.includes('RESERVATION_NOT_FOUND')) {
+        throw new PickupConfirmationError('NOT_FOUND');
+      }
+      if (error.code === '42501' || msg.includes('RESERVATION_FORBIDDEN')) {
+        throw new PickupConfirmationError('FORBIDDEN');
+      }
+      if (msg.includes('RESERVATION_ALREADY_COMPLETED')) {
+        throw new PickupConfirmationError('RESERVATION_ALREADY_COMPLETED');
+      }
+      if (msg.includes('RESERVATION_CANCELLED')) {
+        throw new PickupConfirmationError('RESERVATION_CANCELLED');
+      }
+      if (msg.includes('RESERVATION_EXPIRED')) {
+        throw new PickupConfirmationError('RESERVATION_EXPIRED');
+      }
+      if (msg.includes('RESERVATION_UNFIT')) {
+        throw new PickupConfirmationError('RESERVATION_UNFIT');
+      }
+      throw new Error(error.message);
+    }
+
+    const payload = data as {
+      reservation: Record<string, unknown>;
+      history_entry: Record<string, unknown>;
+      idempotent_replay?: boolean;
+    } | null;
+
+    if (!payload?.reservation || !payload?.history_entry) {
+      throw new Error('Falha ao confirmar a retirada da reserva.');
+    }
+
+    return {
+      reservation: reservationFromRow(payload.reservation),
+      historyEntry: reservationHistoryFromRow(payload.history_entry),
+      idempotentReplay: Boolean(payload.idempotent_replay),
+    };
+  }
+
+  // Sem await entre leitura e escritas: requisições concorrentes no mesmo processo ficam serializadas (RN12).
+  const now = options?.now ?? new Date();
+  const nowMs = now.getTime();
+  const nowIso = now.toISOString();
+  expireOverdueFoodBatchesInMemory(now);
+
+  let foundEntry: [string, FoodBatchReservation] | undefined;
+  for (const entry of Array.from(reservationStore.foodBatchReservations?.entries() ?? [])) {
+    if (entry[1].id === reservationId) {
+      foundEntry = entry;
+      break;
+    }
+  }
+
+  if (!foundEntry) {
+    throw new PickupConfirmationError('NOT_FOUND');
+  }
+
+  const [entryKey, storedReservation] = foundEntry;
+  const storedBatch = store.foodBatches?.get(storedReservation.batchId);
+  if (!storedBatch) {
+    throw new PickupConfirmationError('NOT_FOUND');
+  }
+
+  const batch = normalizeStoredBatch(storedBatch);
+  if (
+    options?.allowedEstablishmentIds &&
+    !options.allowedEstablishmentIds.has(batch.establishmentId)
+  ) {
+    throw new PickupConfirmationError('FORBIDDEN');
+  }
+
+  if (storedReservation.status === 'COMPLETED') {
+    if (
+      options?.requestId &&
+      storedReservation.pickupConfirmationRequestId === options.requestId
+    ) {
+      const existingHistory = (
+        reservationStore.foodBatchReservationHistory?.get(storedReservation.id) ?? []
+      )
+        .filter((entry) => entry.action === 'COMPLETED')
+        .slice(-1)[0];
+
+      return {
+        reservation: storedReservation,
+        historyEntry: existingHistory ?? {
+          id: randomUUID(),
+          reservationId: storedReservation.id,
+          batchId: storedReservation.batchId,
+          actorId: storedReservation.completedBy ?? donorId,
+          action: 'COMPLETED',
+          previousStatus: 'ACTIVE',
+          newStatus: 'COMPLETED',
+          quantity: storedReservation.quantity,
+          restoredToBatch: false,
+          restoredQuantity: 0,
+          reason: null,
+          occurredAt: storedReservation.completedAt ?? nowIso,
+        },
+        idempotentReplay: true,
+      };
+    }
+
+    throw new PickupConfirmationError('RESERVATION_ALREADY_COMPLETED');
+  }
+
+  if (storedReservation.status === 'CANCELLED') {
+    throw new PickupConfirmationError('RESERVATION_CANCELLED');
+  }
+
+  if (
+    batch.status === 'EXPIRED' ||
+    Date.parse(batch.expiresAt) <= nowMs ||
+    Date.parse(batch.pickupEndsAt) <= nowMs
+  ) {
+    throw new PickupConfirmationError('RESERVATION_EXPIRED');
+  }
+
+  if (batch.fitForConsumption !== true) {
+    throw new PickupConfirmationError('RESERVATION_UNFIT');
+  }
+
+  const updatedReservation: FoodBatchReservation = {
+    ...storedReservation,
+    status: 'COMPLETED',
+    completedAt: nowIso,
+    completedBy: donorId,
+    pickupConfirmationRequestId: options?.requestId ?? null,
+  };
+  reservationStore.foodBatchReservations!.set(entryKey, updatedReservation);
+
+  const historyEntry: FoodBatchReservationHistoryEntry = {
+    id: randomUUID(),
+    reservationId: updatedReservation.id,
+    batchId: updatedReservation.batchId,
+    actorId: donorId,
+    action: 'COMPLETED',
+    previousStatus: 'ACTIVE',
+    newStatus: 'COMPLETED',
+    quantity: updatedReservation.quantity,
+    restoredToBatch: false,
+    restoredQuantity: 0,
+    reason: null,
+    occurredAt: nowIso,
+  };
+
+  reservationStore.foodBatchReservationHistory ??= new Map();
+  const history = reservationStore.foodBatchReservationHistory.get(updatedReservation.id) ?? [];
+  history.push(historyEntry);
+  reservationStore.foodBatchReservationHistory.set(updatedReservation.id, history);
+
+  return {
+    reservation: updatedReservation,
+    historyEntry,
+    idempotentReplay: false,
+  };
+}
+
+/**
+ * RN16: Contabiliza alimentos efetivamente resgatados somando EXCLUSIVAMENTE reservas com status COMPLETED.
+ */
+export async function getCompletedFoodRescuedMetrics(): Promise<CompletedFoodRescuedMetrics> {
+  if (!useSupabase()) {
+    let completedReservationsCount = 0;
+    let rescuedUnits = 0;
+
+    for (const reservation of Array.from(reservationStore.foodBatchReservations?.values() ?? [])) {
+      if (reservation.status === 'COMPLETED') {
+        completedReservationsCount += 1;
+        rescuedUnits += reservation.quantity;
+      }
+    }
+
+    return { completedReservationsCount, rescuedUnits };
+  }
+
+  const { data, error } = await createSupabaseAdminClient()
+    .from('food_batch_reservations')
+    .select('quantity')
+    .eq('status', 'COMPLETED');
+
+  if (error) throw new Error(error.message);
+
+  const rows = (data as Array<{ quantity: number }> | null) ?? [];
+  return {
+    completedReservationsCount: rows.length,
+    rescuedUnits: rows.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0),
   };
 }
 

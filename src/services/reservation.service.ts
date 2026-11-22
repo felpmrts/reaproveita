@@ -2,14 +2,19 @@ import { ForbiddenError, requireEstablishmentOwnership } from '@/lib/rbac';
 import { getEstablishmentRepository } from '@/repositories/establishment.repository';
 import {
   cancelFoodBatchReservation,
+  confirmFoodBatchPickup,
   findFoodBatchById,
   findFoodBatchReservationById,
+  getCompletedFoodRescuedMetrics,
   listFoodBatchReservationHistory,
   listFoodBatchReservations,
   listFoodBatchReservationsByBatchIds,
   listFoodBatchesByEstablishmentIds,
+  PickupConfirmationError,
   ReservationCancellationError,
   type CancelFoodBatchReservationResult,
+  type CompletedFoodRescuedMetrics,
+  type ConfirmFoodBatchPickupResult,
   type FoodBatch,
   type FoodBatchReservation,
   type FoodBatchReservationHistoryEntry,
@@ -20,6 +25,7 @@ import { getRbacResourceRepository } from '@/repositories/rbac-resources.reposit
 import { getUserRepository } from '@/repositories/user.repository';
 import type {
   CancelReservationInput,
+  ConfirmPickupInput,
   DonorReservationsQueryInput,
 } from '@/schemas/reservation.schema';
 import type { ReceiverReservationDetails } from '@/types/reservation';
@@ -27,9 +33,13 @@ import type { UserEntity } from '@/types/user';
 
 export {
   findFoodBatchReservationById,
+  getCompletedFoodRescuedMetrics,
   listFoodBatchReservationHistory,
+  PickupConfirmationError,
   ReservationCancellationError,
   type CancelFoodBatchReservationResult,
+  type CompletedFoodRescuedMetrics,
+  type ConfirmFoodBatchPickupResult,
   type FoodBatchReservation,
   type FoodBatchReservationHistoryEntry,
   type FoodBatchReservationStatus,
@@ -71,6 +81,9 @@ export interface DonorReservationItem {
   createdAt: string;
   cancelledAt: string | null;
   cancellationReason: string | null;
+  completedAt: string | null;
+  completedBy: string | null;
+  completedByName: string | null;
   receiver: DonorReservationReceiverSummary;
 }
 
@@ -80,6 +93,8 @@ export interface DonorReservationsSummary {
   completed: number;
   cancelled: number;
   activeUnits: number;
+  /** RN16: Soma exclusivamente unidades de reservas com status COMPLETED. */
+  rescuedUnits: number;
 }
 
 export interface DonorReservationsResult {
@@ -93,6 +108,15 @@ export interface DonorReservationDetails extends DonorReservationItem {
   history: FoodBatchReservationHistoryEntry[];
 }
 
+export interface ConfirmDonorPickupResponse {
+  message: string;
+  reservation: DonorReservationItem;
+  historyEntryId: string;
+  idempotentReplay: boolean;
+  summary: DonorReservationsSummary;
+  globalImpact: CompletedFoodRescuedMetrics;
+}
+
 function normalizeSearchText(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
@@ -101,7 +125,8 @@ function mapDonorReservationItem(
   reservation: FoodBatchReservation,
   batch: FoodBatch,
   establishmentName: string,
-  receiver?: Pick<UserEntity, 'id' | 'name' | 'phone'> | null
+  receiver?: Pick<UserEntity, 'id' | 'name' | 'phone'> | null,
+  completedByUser?: Pick<UserEntity, 'id' | 'name'> | null
 ): DonorReservationItem {
   return {
     id: reservation.id,
@@ -119,6 +144,11 @@ function mapDonorReservationItem(
     createdAt: reservation.createdAt,
     cancelledAt: reservation.cancelledAt ?? null,
     cancellationReason: reservation.cancellationReason ?? null,
+    completedAt: reservation.completedAt ?? null,
+    completedBy: reservation.completedBy ?? null,
+    completedByName:
+      completedByUser?.name ??
+      (reservation.completedBy ? 'Responsável do estabelecimento' : null),
     receiver: {
       id: receiver?.id ?? reservation.receiverId,
       name: receiver?.name ?? 'Receptor identificado por código',
@@ -259,7 +289,7 @@ export async function listReceiverReservations(
 
 /**
  * Lista reservas recebidas pelos lotes dos estabelecimentos vinculados ao Doador autenticado
- * (ST18 / SCRUM-36 / SCRUM-94 / RN03 / RN14 / RNF08).
+ * (ST18 / SCRUM-36 / SCRUM-94 / RN03 / RN14 / RN16 / RNF08).
  */
 export async function listDonorReceivedReservations(
   donor: Pick<UserEntity, 'id' | 'role'>,
@@ -297,10 +327,19 @@ export async function listDonorReceivedReservations(
     name: est.name,
   }));
 
+  const emptySummary: DonorReservationsSummary = {
+    total: 0,
+    active: 0,
+    completed: 0,
+    cancelled: 0,
+    activeUnits: 0,
+    rescuedUnits: 0,
+  };
+
   if (scopedEstablishments.length === 0) {
     return {
       items: [],
-      summary: { total: 0, active: 0, completed: 0, cancelled: 0, activeUnits: 0 },
+      summary: emptySummary,
       establishments: establishmentOptions,
       updatedAt: now.toISOString(),
     };
@@ -315,7 +354,7 @@ export async function listDonorReceivedReservations(
   if (batches.length === 0) {
     return {
       items: [],
-      summary: { total: 0, active: 0, completed: 0, cancelled: 0, activeUnits: 0 },
+      summary: emptySummary,
       establishments: establishmentOptions,
       updatedAt: now.toISOString(),
     };
@@ -326,10 +365,16 @@ export async function listDonorReceivedReservations(
     batches.map((batch) => batch.id)
   );
 
-  const receiverIds = Array.from(new Set(allReservations.map((res) => res.receiverId)));
-  const receivers =
-    receiverIds.length > 0 ? await getUserRepository().findByIds(receiverIds) : [];
-  const receiversById = new Map(receivers.map((user) => [user.id, user]));
+  const userIdsToLoad = Array.from(
+    new Set(
+      allReservations.flatMap((res) =>
+        res.completedBy ? [res.receiverId, res.completedBy] : [res.receiverId]
+      )
+    )
+  );
+  const loadedUsers =
+    userIdsToLoad.length > 0 ? await getUserRepository().findByIds(userIdsToLoad) : [];
+  const usersById = new Map(loadedUsers.map((user) => [user.id, user]));
 
   const mappedAll: DonorReservationItem[] = [];
   for (const reservation of allReservations) {
@@ -342,7 +387,8 @@ export async function listDonorReceivedReservations(
         reservation,
         batch,
         establishment.name,
-        receiversById.get(reservation.receiverId)
+        usersById.get(reservation.receiverId),
+        reservation.completedBy ? usersById.get(reservation.completedBy) : null
       )
     );
   }
@@ -353,6 +399,7 @@ export async function listDonorReceivedReservations(
     completed: 0,
     cancelled: 0,
     activeUnits: 0,
+    rescuedUnits: 0,
   };
 
   for (const item of mappedAll) {
@@ -361,6 +408,7 @@ export async function listDonorReceivedReservations(
       summary.activeUnits += item.quantity;
     } else if (item.status === 'COMPLETED') {
       summary.completed += 1;
+      summary.rescuedUnits += item.quantity;
     } else if (item.status === 'CANCELLED') {
       summary.cancelled += 1;
     }
@@ -415,13 +463,91 @@ export async function getDonorReservationDetails(
   // Restringe acesso estritamente ao responsável autorizado pelo estabelecimento (RN03)
   requireEstablishmentOwnership(donor, establishment.ownerId);
 
-  const [receiver, history] = await Promise.all([
+  const [receiver, completedByUser, history] = await Promise.all([
     getUserRepository().findById(reservation.receiverId),
+    reservation.completedBy
+      ? getUserRepository().findById(reservation.completedBy)
+      : Promise.resolve(null),
     listFoodBatchReservationHistory(reservation.id),
   ]);
 
   return {
-    ...mapDonorReservationItem(reservation, batch, establishment.name, receiver),
+    ...mapDonorReservationItem(
+      reservation,
+      batch,
+      establishment.name,
+      receiver,
+      completedByUser
+    ),
     history,
+  };
+}
+
+/**
+ * Confirma a retirada presencial de uma reserva ativa e válida identificada pelo código (ST19 / SCRUM-37 / SCRUM-96).
+ * - Restrito ao Doador responsável pelo estabelecimento proprietário do lote (RN03, RN14).
+ * - Impede confirmação de reservas expiradas, canceladas ou já concluídas (RN11, RN12).
+ * - Registra data/horário, responsável pela confirmação e histórico auditável (RN15).
+ * - Retorna indicadores atualizados de alimentos efetivamente resgatados (RN16).
+ */
+export async function confirmDonorReservationPickup(
+  donor: Pick<UserEntity, 'id' | 'role' | 'name'>,
+  reservationCode: string,
+  input: ConfirmPickupInput = {},
+  now: Date = new Date()
+): Promise<ConfirmDonorPickupResponse> {
+  if (donor.role !== 'DONOR') {
+    throw new ForbiddenError(
+      'Apenas usuários com perfil Doador podem confirmar retiradas presenciais.'
+    );
+  }
+
+  const ownedEstablishments = await getEstablishmentRepository().findByOwner(donor.id);
+  const allowedEstablishmentIds = new Set(ownedEstablishments.map((est) => est.id));
+
+  const pickupResult = await confirmFoodBatchPickup(reservationCode, donor.id, {
+    requestId: input.requestId,
+    allowedEstablishmentIds,
+    now,
+  });
+
+  const [donorReservations, globalImpact, batch, receiver] = await Promise.all([
+    listDonorReceivedReservations(donor, {}, now),
+    getCompletedFoodRescuedMetrics(),
+    findFoodBatchById(pickupResult.reservation.batchId, now),
+    getUserRepository().findById(pickupResult.reservation.receiverId),
+  ]);
+
+  const establishment = ownedEstablishments.find(
+    (est) => est.id === batch?.establishmentId
+  );
+
+  const mappedReservation =
+    donorReservations.items.find((item) => item.id === pickupResult.reservation.id) ??
+    (batch
+      ? mapDonorReservationItem(
+          pickupResult.reservation,
+          batch,
+          establishment?.name ?? 'Estabelecimento',
+          receiver,
+          { id: donor.id, name: donor.name }
+        )
+      : null);
+
+  if (!mappedReservation) {
+    throw new PickupConfirmationError('NOT_FOUND');
+  }
+
+  const message = pickupResult.idempotentReplay
+    ? 'Retirada presencial já confirmada para esta solicitação.'
+    : 'Retirada presencial confirmada com sucesso! Indicadores de alimentos resgatados atualizados.';
+
+  return {
+    message,
+    reservation: mappedReservation,
+    historyEntryId: pickupResult.historyEntry.id,
+    idempotentReplay: pickupResult.idempotentReplay,
+    summary: donorReservations.summary,
+    globalImpact,
   };
 }

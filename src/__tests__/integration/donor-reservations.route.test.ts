@@ -269,6 +269,7 @@ describe('ST18 (SCRUM-94) — Gerenciamento das reservas recebidas pelo Doador (
       completed: 0,
       cancelled: 0,
       activeUnits: 7,
+      rescuedUnits: 0,
     });
   });
 
@@ -304,6 +305,7 @@ describe('ST18 (SCRUM-94) — Gerenciamento das reservas recebidas pelo Doador (
       completed: 0,
       cancelled: 1,
       activeUnits: 3,
+      rescuedUnits: 0,
     });
 
     // Filtro por estabelecimento vinculado
