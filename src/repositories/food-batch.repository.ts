@@ -301,6 +301,28 @@ export async function listDonorFoodBatches(
   return data as FoodBatch[];
 }
 
+export async function listFoodBatchesByEstablishmentIds(
+  establishmentIds: string[],
+  now: Date = new Date()
+): Promise<FoodBatch[]> {
+  const uniqueIds = Array.from(new Set(establishmentIds));
+  if (uniqueIds.length === 0) return [];
+
+  if (!useSupabase()) {
+    expireOverdueFoodBatchesInMemory(now);
+    const idSet = new Set(uniqueIds);
+    return localBatches().filter((batch) => idSet.has(batch.establishmentId));
+  }
+
+  const { data, error } = await createSupabaseAdminClient()
+    .from('food_batches')
+    .select(selection)
+    .in('establishment_id', uniqueIds)
+    .order('published_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data as FoodBatch[] | null) ?? [];
+}
+
 export async function findFoodBatchById(
   id: string,
   now: Date = new Date()
@@ -630,6 +652,38 @@ export async function listFoodBatchReservations(receiverId: string): Promise<Foo
     .select('*').eq('receiver_id', receiverId).order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
   return (data ?? []).map(reservationFromRow);
+}
+
+export async function listFoodBatchReservationsByBatchIds(
+  batchIds: string[],
+  status?: FoodBatchReservationStatus
+): Promise<FoodBatchReservation[]> {
+  const uniqueIds = Array.from(new Set(batchIds));
+  if (uniqueIds.length === 0) return [];
+
+  if (!useSupabase()) {
+    const idSet = new Set(uniqueIds);
+    return Array.from(reservationStore.foodBatchReservations?.values() ?? [])
+      .filter(
+        (reservation) =>
+          idSet.has(reservation.batchId) &&
+          (status === undefined || reservation.status === status)
+      )
+      .reverse();
+  }
+
+  let query = createSupabaseAdminClient()
+    .from('food_batch_reservations')
+    .select('*')
+    .in('batch_id', uniqueIds);
+
+  if (status) {
+    query = query.eq('status', status);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return ((data as Array<Record<string, unknown>> | null) ?? []).map(reservationFromRow);
 }
 
 export async function findFoodBatchReservationById(

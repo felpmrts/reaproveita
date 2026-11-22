@@ -2,9 +2,10 @@ import { randomUUID } from 'crypto';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
-import { POST } from '@/app/api/receiver/reservations/route';
+import { GET, POST } from '@/app/api/receiver/reservations/route';
 import { clearFoodBatchesStore, findFoodBatchById, listFoodBatchReservations, type FoodBatch } from '@/repositories/food-batch.repository';
 import { getInMemoryUserRepository } from '@/repositories/user.repository';
+import { getInMemoryEstablishmentRepository } from '@/repositories/establishment.repository';
 import type { UserEntity } from '@/types/user';
 
 vi.mock('next/headers', () => ({ cookies: vi.fn() }));
@@ -93,3 +94,33 @@ it('exige sessão e papel de receptor', async () => {
   expect((await reserve(1)).status).toBe(403);
 });
 
+it('lista apenas as reservas do receptor com estabelecimento, endereço e janela de retirada', async () => {
+  const establishment = await getInMemoryEstablishmentRepository().create(batch.publishedBy, {
+    name: 'Padaria da Praça', cnpj: '11222333000181', email: 'padaria@test.com', phone: '34999990000',
+    zipCode: '38400100', street: 'Avenida Brasil', number: '10', neighborhood: 'Centro',
+    city: 'Uberlândia', state: 'MG', latitude: -18.9, longitude: -48.3,
+  });
+  store.foodBatches!.set(batch.id, { ...batch, establishmentId: establishment.id });
+  await reserve(2);
+  const response = await GET();
+  expect(response.status).toBe(200);
+  expect(response.headers.get('cache-control')).toContain('no-store');
+  const { data } = await response.json();
+  expect(data).toHaveLength(1);
+  expect(data[0]).toMatchObject({
+    quantity: 2, batchId: batch.id, batchTitle: batch.name, status: 'ACTIVE',
+    establishment: { name: 'Padaria da Praça', address: expect.stringContaining('Avenida Brasil, 10') },
+    pickupStartsAt: batch.pickupStartsAt, pickupEndsAt: batch.pickupEndsAt,
+  });
+  const another = await getInMemoryUserRepository().create({
+    name: 'Outra pessoa', email: 'outra@test.com', passwordHash: 'hash', role: 'RECEIVER',
+  });
+  authenticate(another);
+  expect((await (await GET()).json()).data).toEqual([]);
+  authenticate();
+  expect((await GET()).status).toBe(401);
+  authenticate(await getInMemoryUserRepository().create({
+    name: 'Doador', email: 'outro-doador@test.com', passwordHash: 'hash', role: 'DONOR',
+  }));
+  expect((await GET()).status).toBe(403);
+});

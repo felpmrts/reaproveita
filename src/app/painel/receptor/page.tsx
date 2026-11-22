@@ -4,8 +4,8 @@ import { HeartHandshake, ArrowLeft, ShieldCheck, ArrowRight } from 'lucide-react
 import { FoodBatchCatalog } from '@/components/food-batches/FoodBatchCatalog';
 import { ReceiverReservationsList } from '@/components/reservations/ReceiverReservationsList';
 import { ForbiddenError, UnauthorizedError, requireRole } from '@/lib/rbac';
-import { getRbacResourceRepository } from '@/repositories/rbac-resources.repository';
-import { listFoodBatchReservations } from '@/repositories/food-batch.repository';
+
+import { listReceiverReservations } from '@/services/reservation.service';
 import { listActiveFoodBatchCatalog } from '@/services/food-batch.service';
 
 export const dynamic = 'force-dynamic';
@@ -20,13 +20,10 @@ export default async function PainelReceptorPage() {
     redirect('/');
   }
 
-  const repo = getRbacResourceRepository();
-  const [legacyReservations, batchReservations, catalog] = await Promise.all([
-    repo.findReservationsByReceiver(user.id),
-    listFoodBatchReservations(user.id),
+  const [reservations, catalog] = await Promise.all([
+    listReceiverReservations(user),
     listActiveFoodBatchCatalog(),
   ]);
-  const reservations = [...batchReservations, ...legacyReservations];
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">

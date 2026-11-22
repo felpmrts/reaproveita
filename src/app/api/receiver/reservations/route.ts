@@ -1,3 +1,4 @@
+import { listReceiverReservations } from '@/services/reservation.service';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { handleAuthorizationError, requireRole } from '@/lib/rbac';
@@ -25,5 +26,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: { code: error.code, message: error.message } }, { status: 409 });
     }
     return NextResponse.json({ success: false, error: { message: 'Não foi possível confirmar a reserva. Tente novamente.' } }, { status: 500 });
+  }
+}
+
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  try {
+    const receiver = await requireRole(['RECEIVER']);
+    const reservations = await listReceiverReservations(receiver);
+    return NextResponse.json({ success: true, data: reservations }, {
+      headers: { 'Cache-Control': 'private, no-store' },
+    });
+  } catch (error) {
+    return handleAuthorizationError(error) ?? NextResponse.json({
+      success: false, error: { message: 'Não foi possível carregar suas reservas.' },
+    }, { status: 500 });
   }
 }

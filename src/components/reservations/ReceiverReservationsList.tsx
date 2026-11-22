@@ -6,16 +6,9 @@ import { useRouter } from 'next/navigation';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { formatDateTime } from '@/components/food-batches/food-batch-format';
 
-export interface ReceiverReservationItem {
-  id: string;
-  batchId?: string;
-  batchTitle: string;
-  quantity: number;
-  status: 'ACTIVE' | 'CANCELLED' | 'COMPLETED';
-  createdAt?: string;
-  cancelledAt?: string | null;
-  cancellationReason?: string | null;
-}
+import type { ReceiverReservationDetails } from '@/types/reservation';
+
+export type ReceiverReservationItem = ReceiverReservationDetails;
 
 const STATUS_META: Record<
   ReceiverReservationItem['status'],
@@ -41,12 +34,16 @@ export function ReceiverReservationsList({
   initialReservations: ReceiverReservationItem[];
 }) {
   const router = useRouter();
+  const push = router.push;
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const [reservations, setReservations] =
     useState<ReceiverReservationItem[]>(initialReservations);
   const [selectedReservation, setSelectedReservation] =
     useState<ReceiverReservationItem | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [reason, setReason] = useState('');
   const [pending, setPending] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -69,6 +66,50 @@ export function ReceiverReservationsList({
       dialog.close();
     }
   }, [selectedReservation]);
+
+  useEffect(() => {
+    if (pending || selectedReservation) return;
+    const controller = new AbortController();
+    let loading = false;
+
+    async function refreshReservations() {
+      if (loading) return;
+      loading = true;
+      setRefreshing(true);
+      try {
+        const response = await fetch('/api/receiver/reservations', {
+          cache: 'no-store', signal: controller.signal,
+        });
+        if (response.status === 401) {
+          push('/login');
+          return;
+        }
+        const body = await response.json();
+        if (!response.ok) throw new Error('Não foi possível atualizar suas reservas.');
+        if (!controller.signal.aborted) {
+          setReservations(body.data);
+          setRefreshError(null);
+        }
+      } catch {
+        if (!controller.signal.aborted) setRefreshError('Não foi possível atualizar suas reservas. Tente novamente.');
+      } finally {
+        loading = false;
+        if (!controller.signal.aborted) setRefreshing(false);
+      }
+    }
+
+    if (refreshKey > 0) void refreshReservations();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshReservations();
+    }, 30000);
+    function onFocus() { void refreshReservations(); }
+    window.addEventListener('focus', onFocus);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [pending, selectedReservation, refreshKey, push]);
 
   function openCancelDialog(reservation: ReceiverReservationItem) {
     if (pending || reservation.status !== 'ACTIVE') return;
@@ -165,7 +206,14 @@ export function ReceiverReservationsList({
         <h2 className="text-sm font-semibold text-slate-800">
           Minhas Reservas ({reservations.length})
         </h2>
+        <button type="button" disabled={refreshing || pending || !!selectedReservation}
+          onClick={() => setRefreshKey((key) => key + 1)}
+          className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-60">
+          {refreshing ? 'Atualizando…' : 'Atualizar reservas'}
+        </button>
       </div>
+      <p className="mt-1 text-xs text-slate-500">Atualização automática a cada 30 segundos.</p>
+      {refreshError && <p role="alert" className="mt-2 text-sm text-red-700">{refreshError}</p>}
 
       {feedback && (
         <div
@@ -224,6 +272,25 @@ export function ReceiverReservationsList({
                   <p className="mt-1 break-all text-xs text-slate-500">
                     Código da reserva: <span className="font-mono">{res.id}</span>
                   </p>
+
+                  <dl className="mt-3 grid gap-3 rounded-lg bg-slate-50 p-3 text-xs sm:grid-cols-2">
+                    <div>
+                      <dt className="font-semibold text-slate-800">Estabelecimento e endereço</dt>
+                      <dd className="mt-1 break-words text-slate-600">
+                        {res.establishment ? (
+                          <><span className="block font-medium text-slate-900">{res.establishment.name}</span>{res.establishment.address}</>
+                        ) : 'Informações do estabelecimento indisponíveis.'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-slate-800">Janela de retirada (Brasília)</dt>
+                      <dd className="mt-1 text-slate-600">
+                        {res.pickupStartsAt && res.pickupEndsAt
+                          ? formatDateTime(res.pickupStartsAt) + ' até ' + formatDateTime(res.pickupEndsAt)
+                          : 'Período de retirada indisponível.'}
+                      </dd>
+                    </div>
+                  </dl>
 
                   {res.createdAt && (
                     <p className="mt-0.5 text-xs text-slate-500">
