@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -54,6 +55,27 @@ export function FoodBatchDetailsView({
   details: FoodBatchDetails;
   backHref?: string;
 }) {
+  const router = useRouter();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (dialogOpen) dialog.current?.showModal();
+    else dialog.current?.close();
+  }, [dialogOpen]);
+
+  function openConfirmation() {
+    setReservationError(null);
+    if (!Number.isInteger(quantity) || quantity <= 0 || quantity > details.availableQuantity) {
+      setReservationError('Informe uma quantidade inteira entre 1 e o saldo disponível.');
+      return;
+    }
+    setDialogOpen(true);
+  }
+  const request = useRef<{ quantity: number; id: string }>();
+  const [pending, setPending] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [reservationError, setReservationError] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [reservationNotice, setReservationNotice] = useState<string | null>(null);
 
@@ -65,12 +87,40 @@ export function FoodBatchDetailsView({
 
   const urgencyDescription = formatUrgencyDescription(details.urgency);
 
-  function handleReservePreview() {
-    const clamped = Math.min(Math.max(1, quantity), details.availableQuantity);
-    setQuantity(clamped);
-    setReservationNotice(
-      `Seleção de ${clamped} unidade(s) registrada. A confirmação de reserva será concluída na etapa de reservas.`
-    );
+  async function handleReserve() {
+    if (pending || confirmed) return;
+    setReservationError(null);
+    if (!Number.isInteger(quantity) || quantity <= 0 || quantity > details.availableQuantity) {
+      setReservationError('Informe uma quantidade inteira entre 1 e o saldo disponível.');
+      return;
+    }
+    if (!request.current || request.current.quantity !== quantity) {
+      request.current = { quantity, id: crypto.randomUUID() };
+    }
+    setPending(true);
+    try {
+      const response = await fetch('/api/receiver/reservations', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ batchId: details.id, quantity, requestId: request.current.id }),
+      });
+      if (response.status === 401) {
+        router.push('/login');
+        return;
+      }
+      const body = await response.json();
+      if (!response.ok) {
+        if (response.status < 500) request.current = undefined;
+        throw new Error(body.error?.message ?? 'Não foi possível reservar este lote.');
+      }
+      setConfirmed(true);
+      setReservationNotice(`Reserva de ${body.data.quantity} unidade(s) realizada com sucesso.`);
+      router.refresh();
+    } catch (error) {
+      setReservationError(error instanceof Error ? error.message : 'Falha de comunicação. Tente novamente.');
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
@@ -211,9 +261,9 @@ export function FoodBatchDetailsView({
           </section>
 
           <section aria-label="Reserva do lote" className="mt-6 border-t border-slate-200 pt-6">
-            {details.reservable ? (
+            {(details.reservable || confirmed) ? (
               <div className="space-y-4">
-                <div className="flex flex-wrap items-end gap-4">
+                {!confirmed && <div className="flex flex-wrap items-end gap-4">
                   <div>
                     <label
                       htmlFor="reserve-quantity"
@@ -225,10 +275,12 @@ export function FoodBatchDetailsView({
                       id="reserve-quantity"
                       type="number"
                       min={1}
+                      step={1}
+                      disabled={pending}
                       max={details.availableQuantity}
                       value={quantity}
                       onChange={(event) => {
-                        const next = Number.parseInt(event.target.value, 10);
+                        const next = Number(event.target.value);
                         setQuantity(Number.isNaN(next) ? 1 : next);
                       }}
                       className="mt-1.5 w-28 rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200"
@@ -237,21 +289,15 @@ export function FoodBatchDetailsView({
 
                   <button
                     type="button"
-                    onClick={handleReservePreview}
+                    onClick={openConfirmation}
+                    disabled={pending}
                     className="rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
                   >
-                    Reservar lote
+                    {pending ? 'Confirmando…' : 'Reservar lote'}
                   </button>
-                </div>
-
-                {reservationNotice && (
-                  <p
-                    role="status"
-                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-                  >
-                    {reservationNotice}
-                  </p>
-                )}
+                </div>}
+                {!dialogOpen && reservationError && <p role="alert" className="text-sm text-red-700">{reservationError}</p>}
+                {confirmed && <button type="button" onClick={() => setDialogOpen(true)} className="text-sm font-semibold text-emerald-700 underline">Ver confirmação da reserva</button>}
               </div>
             ) : (
               <div
@@ -269,6 +315,44 @@ export function FoodBatchDetailsView({
               </div>
             )}
           </section>
+          <dialog
+            ref={dialog}
+            aria-labelledby="reservation-dialog-title"
+            onCancel={(event) => {
+              event.preventDefault();
+              if (!pending) setDialogOpen(false);
+            }}
+            onClose={() => setDialogOpen(false)}
+            className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl backdrop:bg-slate-900/50"
+          >
+            <h2 id="reservation-dialog-title" className="text-xl font-bold text-slate-900">
+              {confirmed ? 'Reserva confirmada' : 'Confirmar reserva'}
+            </h2>
+            {confirmed ? (
+              <div className="mt-4 space-y-5">
+                <p role="status" className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">{reservationNotice}</p>
+                <div className="flex flex-wrap gap-3">
+                  <Link href="/painel/receptor" className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800">Ver minhas reservas</Link>
+                  <button type="button" onClick={() => setDialogOpen(false)} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold">Fechar</button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-5">
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="font-semibold text-slate-900">{details.name}</p>
+                  <p className="mt-1 text-sm text-slate-700">{quantity} unidade(s)</p>
+                  <p className="mt-2 text-sm text-slate-600">Retirada de {formatDateTime(details.pickupStartsAt)} até {formatDateTime(details.pickupEndsAt)}.</p>
+                </div>
+                {reservationError && <p role="alert" className="text-sm text-red-700">{reservationError}</p>}
+                <div className="flex flex-wrap gap-3">
+                  <button type="button" disabled={pending} onClick={handleReserve} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60">
+                    {pending ? 'Confirmando…' : 'Confirmar reserva'}
+                  </button>
+                  <button type="button" disabled={pending} onClick={() => setDialogOpen(false)} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold disabled:opacity-60">Cancelar</button>
+                </div>
+              </div>
+            )}
+          </dialog>
         </article>
       </div>
     </main>

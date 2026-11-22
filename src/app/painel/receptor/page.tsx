@@ -2,8 +2,10 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { HeartHandshake, ArrowLeft, ShieldCheck, ArrowRight } from 'lucide-react';
 import { FoodBatchCatalog } from '@/components/food-batches/FoodBatchCatalog';
+import { ReceiverReservationsList } from '@/components/reservations/ReceiverReservationsList';
 import { ForbiddenError, UnauthorizedError, requireRole } from '@/lib/rbac';
 import { getRbacResourceRepository } from '@/repositories/rbac-resources.repository';
+import { listFoodBatchReservations } from '@/repositories/food-batch.repository';
 import { listActiveFoodBatchCatalog } from '@/services/food-batch.service';
 
 export const dynamic = 'force-dynamic';
@@ -19,10 +21,12 @@ export default async function PainelReceptorPage() {
   }
 
   const repo = getRbacResourceRepository();
-  const [reservations, catalog] = await Promise.all([
+  const [legacyReservations, batchReservations, catalog] = await Promise.all([
     repo.findReservationsByReceiver(user.id),
+    listFoodBatchReservations(user.id),
     listActiveFoodBatchCatalog(),
   ]);
+  const reservations = [...batchReservations, ...legacyReservations];
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">
@@ -72,28 +76,7 @@ export default async function PainelReceptorPage() {
             />
           </section>
 
-          <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <h2 className="text-sm font-semibold text-slate-800">
-              Minhas Reservas ({reservations.length})
-            </h2>
-            {reservations.length === 0 ? (
-              <p className="mt-1 text-xs text-slate-500">
-                Você ainda não possui reservas vinculadas ao seu perfil.
-              </p>
-            ) : (
-              <ul className="mt-2 space-y-2">
-                {reservations.map((res) => (
-                  <li
-                    key={res.id}
-                    className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm shadow-sm"
-                  >
-                    <span className="font-medium text-slate-900">{res.batchTitle}</span>
-                    <span className="text-xs font-semibold text-emerald-700">{res.status}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <ReceiverReservationsList initialReservations={reservations} />
         </div>
       </div>
     </main>
