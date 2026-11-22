@@ -3,6 +3,9 @@ import { redirect } from 'next/navigation';
 import { ShieldCheck, ArrowLeft } from 'lucide-react';
 import { ForbiddenError, UnauthorizedError, requireRole } from '@/lib/rbac';
 import { getRbacResourceRepository } from '@/repositories/rbac-resources.repository';
+import { getCompletedFoodRescuedMetrics } from '@/services/reservation.service';
+
+export const dynamic = 'force-dynamic';
 
 export default async function PainelAdminPage() {
   let user;
@@ -15,7 +18,10 @@ export default async function PainelAdminPage() {
   }
 
   const repo = getRbacResourceRepository();
-  const establishments = await repo.listAllEstablishments();
+  const [establishments, rescuedMetrics] = await Promise.all([
+    repo.listAllEstablishments(),
+    getCompletedFoodRescuedMetrics(),
+  ]);
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">
@@ -46,6 +52,31 @@ export default async function PainelAdminPage() {
             Olá, <strong>{user.name}</strong>. Você está autenticado no console administrativo para
             auditoria e governança da plataforma.
           </p>
+
+          <section
+            aria-label="Indicadores globais de alimentos resgatados"
+            className="mt-6 grid gap-3 sm:grid-cols-2"
+          >
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                Alimentos efetivamente resgatados
+              </p>
+              <p className="mt-1 text-2xl font-bold text-emerald-950">
+                {rescuedMetrics.rescuedUnits}{' '}
+                <span className="text-sm font-semibold">
+                  {rescuedMetrics.rescuedUnits === 1 ? 'unidade' : 'unidades'}
+                </span>
+              </p>
+            </div>
+            <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-800">
+                Retiradas presenciais confirmadas
+              </p>
+              <p className="mt-1 text-2xl font-bold text-sky-950">
+                {rescuedMetrics.completedReservationsCount}
+              </p>
+            </div>
+          </section>
 
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <h2 className="text-sm font-semibold text-slate-800">

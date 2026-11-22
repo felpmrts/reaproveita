@@ -76,7 +76,15 @@ export default async function PainelDoadorPage() {
                   {reservationsData.summary.active === 1 ? 'reserva ativa' : 'reservas ativas'}{' '}
                   ({reservationsData.summary.activeUnits}{' '}
                   {reservationsData.summary.activeUnits === 1 ? 'unidade' : 'unidades'} para
-                  separar) · {reservationsData.summary.total} no total.
+                  separar) · <strong>{reservationsData.summary.rescuedUnits}</strong>{' '}
+                  {reservationsData.summary.rescuedUnits === 1
+                    ? 'alimento resgatado'
+                    : 'alimentos resgatados'}{' '}
+                  ({reservationsData.summary.completed}{' '}
+                  {reservationsData.summary.completed === 1
+                    ? 'retirada concluída'
+                    : 'retiradas concluídas'}
+                  ).
                 </p>
               </div>
               <Link

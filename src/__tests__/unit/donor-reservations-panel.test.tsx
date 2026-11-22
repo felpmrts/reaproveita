@@ -8,16 +8,18 @@ import type {
 } from '@/services/reservation.service';
 
 const pushMock = vi.fn();
+const refreshMock = vi.fn();
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: pushMock,
-    refresh: vi.fn(),
+    refresh: refreshMock,
   }),
 }));
 
 beforeEach(() => {
   pushMock.mockReset();
+  refreshMock.mockReset();
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute('open', '');
   };
@@ -47,6 +49,9 @@ function makeItem(overrides: Partial<DonorReservationItem> = {}): DonorReservati
     createdAt: '2026-11-22T12:00:00.000Z',
     cancelledAt: null,
     cancellationReason: null,
+    completedAt: null,
+    completedBy: null,
+    completedByName: null,
     receiver: {
       id: '44444444-4444-4444-8444-444444444444',
       name: 'Maria Clara',
@@ -72,6 +77,9 @@ function makeInitialData(items: DonorReservationItem[]): DonorReservationsResult
       activeUnits: items
         .filter((i) => i.status === 'ACTIVE')
         .reduce((sum, i) => sum + i.quantity, 0),
+      rescuedUnits: items
+        .filter((i) => i.status === 'COMPLETED')
+        .reduce((sum, i) => sum + i.quantity, 0),
     },
     establishments: Array.from(establishmentsMap.entries()).map(([id, name]) => ({
       id,
@@ -81,8 +89,8 @@ function makeInitialData(items: DonorReservationItem[]): DonorReservationsResult
   };
 }
 
-describe('ST18 (SCRUM-95) — DonorReservationsPanel', () => {
-  it('exibe identificação do receptor, quantidade reservada, horário previsto de retirada e status das reservas', () => {
+describe('ST18 & ST19 (SCRUM-95 / SCRUM-97) — DonorReservationsPanel', () => {
+  it('exibe identificação do receptor, quantidade reservada, horário previsto de retirada, status e indicador de alimentos resgatados', () => {
     const activeItem = makeItem();
     const completedItem = makeItem({
       id: '55555555-5555-4555-8555-555555555555',
@@ -90,6 +98,9 @@ describe('ST18 (SCRUM-95) — DonorReservationsPanel', () => {
       batchCategory: 'Hortifruti',
       quantity: 2,
       status: 'COMPLETED',
+      completedAt: '2026-11-22T13:10:00.000Z',
+      completedBy: 'donor-1',
+      completedByName: 'Padaria Bom Trigo',
       receiver: {
         id: '66666666-6666-4666-8666-666666666666',
         name: 'Carlos Eduardo',
@@ -105,9 +116,16 @@ describe('ST18 (SCRUM-95) — DonorReservationsPanel', () => {
     expect(screen.getByText('34999991111')).toBeInTheDocument();
     expect(screen.getByText('4 unidades')).toBeInTheDocument();
     expect(screen.getByText('4 unidades para separar')).toBeInTheDocument();
+    expect(screen.getByTestId('rescued-food-indicator')).toHaveTextContent('2 unidades');
+    expect(screen.getByTestId('rescued-food-indicator')).toHaveTextContent(
+      '1 retirada confirmada'
+    );
     expect(screen.getAllByText('Horário previsto para retirada')).toHaveLength(2);
     expect(screen.getByText('Ativa')).toBeInTheDocument();
     expect(screen.getByText('Concluída')).toBeInTheDocument();
+
+    // Botão "Confirmar Retirada" aparece apenas para reserva ACTIVE
+    expect(screen.getAllByRole('button', { name: 'Confirmar Retirada' })).toHaveLength(1);
   });
 
   it('filtra reservas por status, estabelecimento e busca textual', () => {
@@ -130,12 +148,10 @@ describe('ST18 (SCRUM-95) — DonorReservationsPanel', () => {
 
     render(<DonorReservationsPanel initialData={makeInitialData([itemA, itemB])} />);
 
-    // Filtra por Canceladas
     fireEvent.click(screen.getByRole('button', { name: 'Canceladas (1)' }));
     expect(screen.queryByText('Pães da Matriz')).not.toBeInTheDocument();
     expect(screen.getByText('Bolo da Filial')).toBeInTheDocument();
 
-    // Volta para Todas e filtra por estabelecimento
     fireEvent.click(screen.getByRole('button', { name: 'Todas (2)' }));
     fireEvent.change(screen.getByLabelText('Estabelecimento'), {
       target: { value: 'est-a' },
@@ -143,7 +159,6 @@ describe('ST18 (SCRUM-95) — DonorReservationsPanel', () => {
     expect(screen.getByText('Pães da Matriz')).toBeInTheDocument();
     expect(screen.queryByText('Bolo da Filial')).not.toBeInTheDocument();
 
-    // Limpa estabelecimento e busca por receptor
     fireEvent.change(screen.getByLabelText('Estabelecimento'), {
       target: { value: 'ALL' },
     });
@@ -152,6 +167,126 @@ describe('ST18 (SCRUM-95) — DonorReservationsPanel', () => {
     });
     expect(screen.getByText('Bolo da Filial')).toBeInTheDocument();
     expect(screen.queryByText('Pães da Matriz')).not.toBeInTheDocument();
+  });
+
+  it('confirma retirada presencial pelo botão "Confirmar Retirada", atualiza status, auditoria e indicador de alimentos resgatados', async () => {
+    const item = makeItem({ quantity: 4 });
+    const confirmedItem: DonorReservationItem = {
+      ...item,
+      status: 'COMPLETED',
+      completedAt: '2026-11-22T13:20:00.000Z',
+      completedBy: 'donor-1',
+      completedByName: 'Padaria Bom Trigo',
+    };
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        message:
+          'Retirada presencial confirmada com sucesso! Indicadores de alimentos resgatados atualizados.',
+        data: {
+          ...confirmedItem,
+          historyEntryId: 'hist-completed-1',
+          idempotentReplay: false,
+          summary: {
+            total: 1,
+            active: 0,
+            completed: 1,
+            cancelled: 0,
+            activeUnits: 0,
+            rescuedUnits: 4,
+          },
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DonorReservationsPanel initialData={makeInitialData([item])} />);
+
+    expect(screen.getByTestId('rescued-food-indicator')).toHaveTextContent('0 unidades');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar Retirada' }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('dialog', { name: 'Confirmar retirada presencial' })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar retirada' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Retirada presencial confirmada com sucesso!'
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/donor/reservations/${item.id}/confirm-pickup`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+
+    expect(screen.getByTestId('rescued-food-indicator')).toHaveTextContent('4 unidades');
+    expect(screen.getByText('Concluída')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Confirmar Retirada' })
+    ).not.toBeInTheDocument();
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('permite confirmar retirada digitando o código da reserva no campo dedicado e exibe erro em duplicidade (409)', async () => {
+    const item = makeItem({ quantity: 3 });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          message: 'Retirada presencial confirmada com sucesso!',
+          data: {
+            ...item,
+            status: 'COMPLETED',
+            completedAt: '2026-11-22T13:25:00.000Z',
+            completedBy: 'donor-1',
+            completedByName: 'Padaria Bom Trigo',
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          success: false,
+          error: {
+            code: 'RESERVATION_ALREADY_COMPLETED',
+            message: 'A retirada desta reserva já foi confirmada anteriormente.',
+          },
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<DonorReservationsPanel initialData={makeInitialData([item])} />);
+
+    const codeField = screen.getByLabelText(
+      'Confirmar retirada presencial por código da reserva'
+    );
+    fireEvent.change(codeField, { target: { value: item.id } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar por código' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Retirada presencial confirmada com sucesso!'
+    );
+    expect(screen.getByTestId('rescued-food-indicator')).toHaveTextContent('3 unidades');
+
+    // Segunda tentativa com o mesmo código recebe 409
+    fireEvent.change(codeField, { target: { value: item.id } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar por código' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'A retirada desta reserva já foi confirmada anteriormente.'
+    );
   });
 
   it('permite consultar o status detalhado e histórico de uma reserva via API', async () => {

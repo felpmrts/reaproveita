@@ -31,3 +31,14 @@ export const donorReservationsQuerySchema = z
   .strict();
 
 export type DonorReservationsQueryInput = z.infer<typeof donorReservationsQuerySchema>;
+
+export const confirmPickupSchema = z
+  .object({
+    requestId: z
+      .string()
+      .uuid('Chave de idempotência inválida.')
+      .optional(),
+  })
+  .strict();
+
+export type ConfirmPickupInput = z.infer<typeof confirmPickupSchema>;
