@@ -398,6 +398,7 @@ export function clearFoodBatchesStore(): void {
   store.foodBatches?.clear();
   store.foodBatchHistory?.clear();
   reservationStore.foodBatchReservations?.clear();
+  reservationStore.foodBatchReservationHistory?.clear();
 }
 
 export async function manageFoodBatch(
@@ -501,6 +502,10 @@ export async function saveFoodBatch(donorId: string, input: PublishFoodBatchInpu
   return { id, publishedAt: publishedAt.toISOString() };
 }
 
+export type FoodBatchReservationStatus = 'ACTIVE' | 'CANCELLED' | 'COMPLETED';
+
+export type ReservationHistoryAction = 'CREATED' | 'CANCELLED' | 'COMPLETED' | 'EXPIRED';
+
 export interface FoodBatchReservation {
   id: string;
   batchId: string;
@@ -508,19 +513,111 @@ export interface FoodBatchReservation {
   requestId: string;
   quantity: number;
   batchTitle: string;
-  status: 'ACTIVE' | 'CANCELLED' | 'COMPLETED';
+  status: FoodBatchReservationStatus;
   createdAt: string;
+  cancelledAt?: string | null;
+  cancellationReason?: string | null;
+}
+
+export interface FoodBatchReservationHistoryEntry {
+  id: string;
+  reservationId: string;
+  batchId: string;
+  actorId: string;
+  action: ReservationHistoryAction;
+  previousStatus: FoodBatchReservationStatus | null;
+  newStatus: FoodBatchReservationStatus;
+  quantity: number;
+  restoredToBatch: boolean;
+  restoredQuantity: number;
+  reason: string | null;
+  occurredAt: string;
+}
+
+export interface CancelFoodBatchReservationResult {
+  reservation: FoodBatchReservation;
+  restoredToBatch: boolean;
+  restoredQuantity: number;
+  historyEntry: FoodBatchReservationHistoryEntry;
+}
+
+export type ReservationCancellationErrorCode =
+  | 'NOT_FOUND'
+  | 'FORBIDDEN'
+  | 'RESERVATION_COMPLETED'
+  | 'RESERVATION_ALREADY_CANCELLED';
+
+export class ReservationCancellationError extends Error {
+  public readonly code: ReservationCancellationErrorCode;
+  public readonly statusCode: 403 | 404 | 409;
+
+  constructor(code: ReservationCancellationErrorCode, message?: string) {
+    const defaults: Record<
+      ReservationCancellationErrorCode,
+      { statusCode: 403 | 404 | 409; message: string }
+    > = {
+      NOT_FOUND: {
+        statusCode: 404,
+        message: 'Reserva não encontrada.',
+      },
+      FORBIDDEN: {
+        statusCode: 403,
+        message: 'Acesso negado. O Receptor pode gerenciar apenas suas próprias reservas.',
+      },
+      RESERVATION_COMPLETED: {
+        statusCode: 409,
+        message: 'Reservas já concluídas não podem ser canceladas.',
+      },
+      RESERVATION_ALREADY_CANCELLED: {
+        statusCode: 409,
+        message: 'Esta reserva já foi cancelada anteriormente.',
+      },
+    };
+    super(message ?? defaults[code].message);
+    this.name = 'ReservationCancellationError';
+    this.code = code;
+    this.statusCode = defaults[code].statusCode;
+  }
 }
 
 const reservationStore = globalThis as typeof globalThis & {
   foodBatchReservations?: Map<string, FoodBatchReservation>;
+  foodBatchReservationHistory?: Map<string, FoodBatchReservationHistoryEntry[]>;
 };
 
 function reservationFromRow(row: Record<string, unknown>): FoodBatchReservation {
   return {
-    id: String(row.id), batchId: String(row.batch_id), receiverId: String(row.receiver_id),
-    requestId: String(row.request_id), quantity: Number(row.quantity), batchTitle: String(row.batch_title),
-    status: row.status as FoodBatchReservation['status'], createdAt: String(row.created_at),
+    id: String(row.id),
+    batchId: String(row.batch_id),
+    receiverId: String(row.receiver_id),
+    requestId: String(row.request_id),
+    quantity: Number(row.quantity),
+    batchTitle: String(row.batch_title),
+    status: row.status as FoodBatchReservationStatus,
+    createdAt: String(row.created_at),
+    cancelledAt: row.cancelled_at ? String(row.cancelled_at) : null,
+    cancellationReason: row.cancellation_reason ? String(row.cancellation_reason) : null,
+  };
+}
+
+function reservationHistoryFromRow(
+  row: Record<string, unknown>
+): FoodBatchReservationHistoryEntry {
+  return {
+    id: String(row.id),
+    reservationId: String(row.reservation_id),
+    batchId: String(row.batch_id),
+    actorId: String(row.actor_id),
+    action: row.action as ReservationHistoryAction,
+    previousStatus: row.previous_status
+      ? (row.previous_status as FoodBatchReservationStatus)
+      : null,
+    newStatus: row.new_status as FoodBatchReservationStatus,
+    quantity: Number(row.quantity),
+    restoredToBatch: Boolean(row.restored_to_batch),
+    restoredQuantity: Number(row.restored_quantity ?? 0),
+    reason: row.reason ? String(row.reason) : null,
+    occurredAt: String(row.occurred_at),
   };
 }
 
@@ -533,6 +630,180 @@ export async function listFoodBatchReservations(receiverId: string): Promise<Foo
     .select('*').eq('receiver_id', receiverId).order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
   return (data ?? []).map(reservationFromRow);
+}
+
+export async function findFoodBatchReservationById(
+  id: string
+): Promise<FoodBatchReservation | null> {
+  if (!useSupabase()) {
+    for (const reservation of Array.from(reservationStore.foodBatchReservations?.values() ?? [])) {
+      if (reservation.id === id) {
+        return reservation;
+      }
+    }
+    return null;
+  }
+
+  const { data, error } = await createSupabaseAdminClient()
+    .from('food_batch_reservations')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? reservationFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function listFoodBatchReservationHistory(
+  reservationId: string
+): Promise<FoodBatchReservationHistoryEntry[]> {
+  if (!useSupabase()) {
+    return [...(reservationStore.foodBatchReservationHistory?.get(reservationId) ?? [])];
+  }
+
+  const { data, error } = await createSupabaseAdminClient()
+    .from('food_batch_reservation_history')
+    .select('*')
+    .eq('reservation_id', reservationId)
+    .order('occurred_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return ((data as Array<Record<string, unknown>> | null) ?? []).map(reservationHistoryFromRow);
+}
+
+export async function cancelFoodBatchReservation(
+  reservationId: string,
+  receiverId: string,
+  options?: { reason?: string; now?: Date }
+): Promise<CancelFoodBatchReservationResult> {
+  const cleanReason = options?.reason?.trim() ? options.reason.trim() : null;
+
+  if (useSupabase()) {
+    const { data, error } = await createSupabaseAdminClient().rpc('cancel_food_batch_reservation', {
+      p_reservation_id: reservationId,
+      p_receiver_id: receiverId,
+      p_reason: cleanReason,
+    });
+
+    if (error) {
+      const msg = error.message ?? '';
+      if (error.code === 'P0002' || msg.includes('RESERVATION_NOT_FOUND')) {
+        throw new ReservationCancellationError('NOT_FOUND');
+      }
+      if (error.code === '42501' || msg.includes('RESERVATION_FORBIDDEN')) {
+        throw new ReservationCancellationError('FORBIDDEN');
+      }
+      if (msg.includes('RESERVATION_COMPLETED')) {
+        throw new ReservationCancellationError('RESERVATION_COMPLETED');
+      }
+      if (msg.includes('RESERVATION_ALREADY_CANCELLED')) {
+        throw new ReservationCancellationError('RESERVATION_ALREADY_CANCELLED');
+      }
+      throw new Error(error.message);
+    }
+
+    const payload = data as {
+      reservation: Record<string, unknown>;
+      restored_to_batch: boolean;
+      restored_quantity: number;
+      history_entry: Record<string, unknown>;
+    } | null;
+
+    if (!payload?.reservation || !payload?.history_entry) {
+      throw new Error('Falha ao cancelar a reserva.');
+    }
+
+    return {
+      reservation: reservationFromRow(payload.reservation),
+      restoredToBatch: Boolean(payload.restored_to_batch),
+      restoredQuantity: Number(payload.restored_quantity ?? 0),
+      historyEntry: reservationHistoryFromRow(payload.history_entry),
+    };
+  }
+
+  // Sem await entre leitura e escritas: requisições concorrentes no mesmo processo ficam serializadas.
+  const now = options?.now ?? new Date();
+  const nowMs = now.getTime();
+  const nowIso = now.toISOString();
+  expireOverdueFoodBatchesInMemory(now);
+
+  let foundEntry: [string, FoodBatchReservation] | undefined;
+  for (const entry of Array.from(reservationStore.foodBatchReservations?.entries() ?? [])) {
+    if (entry[1].id === reservationId) {
+      foundEntry = entry;
+      break;
+    }
+  }
+
+  if (!foundEntry) {
+    throw new ReservationCancellationError('NOT_FOUND');
+  }
+
+  const [entryKey, storedReservation] = foundEntry;
+  if (storedReservation.receiverId !== receiverId) {
+    throw new ReservationCancellationError('FORBIDDEN');
+  }
+  if (storedReservation.status === 'COMPLETED') {
+    throw new ReservationCancellationError('RESERVATION_COMPLETED');
+  }
+  if (storedReservation.status === 'CANCELLED') {
+    throw new ReservationCancellationError('RESERVATION_ALREADY_CANCELLED');
+  }
+
+  const storedBatch = store.foodBatches?.get(storedReservation.batchId);
+  const batch = storedBatch ? normalizeStoredBatch(storedBatch) : null;
+  const isBatchValidForNewReservations = Boolean(
+    batch &&
+      batch.status === 'ACTIVE' &&
+      batch.fitForConsumption === true &&
+      Date.parse(batch.expiresAt) > nowMs &&
+      Date.parse(batch.pickupEndsAt) > nowMs
+  );
+
+  let restoredToBatch = false;
+  let restoredQuantity = 0;
+
+  if (isBatchValidForNewReservations && batch) {
+    store.foodBatches!.set(batch.id, {
+      ...batch,
+      availableQuantity: batch.availableQuantity + storedReservation.quantity,
+    });
+    restoredToBatch = true;
+    restoredQuantity = storedReservation.quantity;
+  }
+
+  const updatedReservation: FoodBatchReservation = {
+    ...storedReservation,
+    status: 'CANCELLED',
+    cancelledAt: nowIso,
+    cancellationReason: cleanReason,
+  };
+  reservationStore.foodBatchReservations!.set(entryKey, updatedReservation);
+
+  const historyEntry: FoodBatchReservationHistoryEntry = {
+    id: randomUUID(),
+    reservationId: updatedReservation.id,
+    batchId: updatedReservation.batchId,
+    actorId: receiverId,
+    action: 'CANCELLED',
+    previousStatus: 'ACTIVE',
+    newStatus: 'CANCELLED',
+    quantity: updatedReservation.quantity,
+    restoredToBatch,
+    restoredQuantity,
+    reason: cleanReason,
+    occurredAt: nowIso,
+  };
+
+  reservationStore.foodBatchReservationHistory ??= new Map();
+  const history = reservationStore.foodBatchReservationHistory.get(updatedReservation.id) ?? [];
+  history.push(historyEntry);
+  reservationStore.foodBatchReservationHistory.set(updatedReservation.id, history);
+
+  return {
+    reservation: updatedReservation,
+    restoredToBatch,
+    restoredQuantity,
+    historyEntry,
+  };
 }
 
 export async function createFoodBatchReservation(
