@@ -1,8 +1,14 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { FoodBatchDetailsView } from '@/components/food-batches/FoodBatchDetailsView';
 import type { FoodBatchDetails } from '@/services/food-batch.service';
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+});
+afterEach(() => vi.unstubAllGlobals());
 function makeDetails(overrides: Partial<FoodBatchDetails> = {}): FoodBatchDetails {
   return {
     id: '11111111-1111-4111-8111-111111111111',
@@ -110,4 +116,35 @@ describe('FoodBatchDetailsView', () => {
       'Reservas indisponíveis — Lote inativo'
     );
   });
+});
+
+it('pede confirmação antes de reservar e mostra sucesso no popup', async () => {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true, status: 201,
+    json: async () => ({ success: true, data: { id: 'reserva-confirmada', quantity: 2 } }),
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(<FoodBatchDetailsView details={makeDetails()} />);
+  fireEvent.change(screen.getByLabelText('Quantidade para reserva'), { target: { value: '2' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Reservar lote' }));
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(screen.getByRole('dialog', { name: 'Confirmar reserva' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirmar reserva' }));
+  expect(await screen.findByText('Reserva de 2 unidade(s) realizada com sucesso.')).toBeInTheDocument();
+  expect(screen.getByRole('dialog', { name: 'Reserva confirmada' })).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith('/api/receiver/reservations', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"quantity":2'),
+  }));
+  expect(screen.getByRole('link', { name: 'Ver minhas reservas' })).toHaveAttribute('href', '/painel/receptor');
+});
+
+it('permite cancelar a confirmação sem enviar uma reserva', () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+  render(<FoodBatchDetailsView details={makeDetails()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Reservar lote' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(fetchMock).not.toHaveBeenCalled();
 });

@@ -397,6 +397,7 @@ export async function listAvailableFoodBatches(
 export function clearFoodBatchesStore(): void {
   store.foodBatches?.clear();
   store.foodBatchHistory?.clear();
+  reservationStore.foodBatchReservations?.clear();
 }
 
 export async function manageFoodBatch(
@@ -498,4 +499,86 @@ export async function saveFoodBatch(donorId: string, input: PublishFoodBatchInpu
     expiredAt: null,
   });
   return { id, publishedAt: publishedAt.toISOString() };
+}
+
+export interface FoodBatchReservation {
+  id: string;
+  batchId: string;
+  receiverId: string;
+  requestId: string;
+  quantity: number;
+  batchTitle: string;
+  status: 'ACTIVE' | 'CANCELLED' | 'COMPLETED';
+  createdAt: string;
+}
+
+const reservationStore = globalThis as typeof globalThis & {
+  foodBatchReservations?: Map<string, FoodBatchReservation>;
+};
+
+function reservationFromRow(row: Record<string, unknown>): FoodBatchReservation {
+  return {
+    id: String(row.id), batchId: String(row.batch_id), receiverId: String(row.receiver_id),
+    requestId: String(row.request_id), quantity: Number(row.quantity), batchTitle: String(row.batch_title),
+    status: row.status as FoodBatchReservation['status'], createdAt: String(row.created_at),
+  };
+}
+
+export async function listFoodBatchReservations(receiverId: string): Promise<FoodBatchReservation[]> {
+  if (!useSupabase()) {
+    return Array.from(reservationStore.foodBatchReservations?.values() ?? [])
+      .filter((reservation) => reservation.receiverId === receiverId).reverse();
+  }
+  const { data, error } = await createSupabaseAdminClient().from('food_batch_reservations')
+    .select('*').eq('receiver_id', receiverId).order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(reservationFromRow);
+}
+
+export async function createFoodBatchReservation(
+  receiverId: string,
+  input: { batchId: string; quantity: number; requestId: string }
+): Promise<FoodBatchReservation> {
+  if (!Number.isSafeInteger(input.quantity) || input.quantity <= 0 || input.quantity > 2147483647) {
+    throw new FoodBatchUnavailableForReservationError('INVALID_QUANTITY');
+  }
+  if (useSupabase()) {
+    const { data, error } = await createSupabaseAdminClient().rpc('reserve_food_batch', {
+      p_batch_id: input.batchId, p_receiver_id: receiverId, p_quantity: input.quantity, p_request_id: input.requestId,
+    });
+    if (error?.code === '23514') {
+      throw new FoodBatchUnavailableForReservationError('OUT_OF_STOCK', 'O lote está indisponível, expirou ou não possui saldo suficiente. Atualize a página.');
+    }
+    if (error || !data) throw new Error(error?.message ?? 'Falha ao reservar.');
+    return reservationFromRow(data as Record<string, unknown>);
+  }
+
+  // No await between stock validation and both writes: concurrent requests in this process are serialized.
+  reservationStore.foodBatchReservations ??= new Map();
+  const key = receiverId + ':' + input.requestId;
+  const previous = reservationStore.foodBatchReservations.get(key);
+  if (previous) {
+    if (previous.batchId !== input.batchId || previous.quantity !== input.quantity) {
+      throw new FoodBatchUnavailableForReservationError('INVALID_QUANTITY', 'Esta confirmação já foi usada para outra reserva.');
+    }
+    return previous;
+  }
+  const now = new Date();
+  expireOverdueFoodBatchesInMemory(now);
+  const stored = store.foodBatches?.get(input.batchId);
+  if (!stored) throw new FoodBatchUnavailableForReservationError('NOT_FOUND');
+  const batch = normalizeStoredBatch(stored);
+  if (batch.status === 'EXPIRED' || Date.parse(batch.expiresAt) <= now.getTime() || Date.parse(batch.pickupEndsAt) <= now.getTime()) {
+    throw new FoodBatchUnavailableForReservationError('EXPIRED');
+  }
+  if (batch.status !== 'ACTIVE' || !batch.fitForConsumption) {
+    throw new FoodBatchUnavailableForReservationError('INACTIVE');
+  }
+  if (batch.availableQuantity < input.quantity) throw new FoodBatchUnavailableForReservationError('OUT_OF_STOCK');
+  const reservation: FoodBatchReservation = {
+    ...input, id: randomUUID(), receiverId, batchTitle: batch.name, status: 'ACTIVE', createdAt: now.toISOString(),
+  };
+  store.foodBatches!.set(batch.id, { ...batch, availableQuantity: batch.availableQuantity - input.quantity });
+  reservationStore.foodBatchReservations.set(key, reservation);
+  return reservation;
 }
