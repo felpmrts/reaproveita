@@ -15,6 +15,7 @@ export class DuplicateEmailError extends Error {
 export interface IUserRepository {
   findByEmail(email: string): Promise<UserEntity | null>;
   findById(id: string): Promise<UserEntity | null>;
+  findByIds(ids: string[]): Promise<UserEntity[]>;
   create(input: CreateUserRecordInput): Promise<UserEntity>;
   update(id: string, input: UpdateUserProfileInput): Promise<UserEntity | null>;
   clear?(): Promise<void>;
@@ -37,6 +38,13 @@ export class InMemoryUserRepository implements IUserRepository {
 
   async findById(id: string): Promise<UserEntity | null> {
     return this.usersById.get(id) ?? null;
+  }
+
+  async findByIds(ids: string[]): Promise<UserEntity[]> {
+    const uniqueIds = Array.from(new Set(ids));
+    return uniqueIds
+      .map((id) => this.usersById.get(id))
+      .filter((user): user is UserEntity => Boolean(user));
   }
 
   async create(input: CreateUserRecordInput): Promise<UserEntity> {
@@ -149,6 +157,34 @@ export class SupabaseUserRepository implements IUserRepository {
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };
+  }
+
+  async findByIds(ids: string[]): Promise<UserEntity[]> {
+    const uniqueIds = Array.from(new Set(ids));
+    if (uniqueIds.length === 0) return [];
+
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .in('id', uniqueIds);
+
+    if (error) {
+      throw new Error(`Erro ao consultar usuários por IDs: ${error.message}`);
+    }
+
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      authUserId: row.auth_user_id,
+      name: row.name,
+      email: row.email,
+      passwordHash: row.password_hash,
+      role: row.role,
+      phone: row.phone,
+      isActive: row.is_active,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   async create(input: CreateUserRecordInput): Promise<UserEntity> {
