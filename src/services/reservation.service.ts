@@ -1,3 +1,7 @@
+import { findFoodBatchById, listFoodBatchReservations } from '@/repositories/food-batch.repository';
+import { getEstablishmentRepository } from '@/repositories/establishment.repository';
+import { getRbacResourceRepository } from '@/repositories/rbac-resources.repository';
+import type { ReceiverReservationDetails } from '@/types/reservation';
 import { ForbiddenError } from '@/lib/rbac';
 import {
   cancelFoodBatchReservation,
@@ -54,4 +58,55 @@ export async function cancelReceiverReservation(
     ...result,
     message,
   };
+}
+
+
+export async function listReceiverReservations(
+  user: Pick<UserEntity, 'id' | 'role'>
+): Promise<ReceiverReservationDetails[]> {
+  if (user.role !== 'RECEIVER') throw new ForbiddenError('Acesso exclusivo ao Receptor.');
+
+  const [reservations, legacy] = await Promise.all([
+    listFoodBatchReservations(user.id),
+    getRbacResourceRepository().findReservationsByReceiver(user.id),
+  ]);
+  const batchIds = Array.from(new Set(reservations.map(({ batchId }) => batchId)));
+  const batches = new Map(await Promise.all(batchIds.map(async (id) =>
+    [id, await findFoodBatchById(id)] as const
+  )));
+  const establishmentIds = Array.from(new Set(Array.from(batches.values())
+    .filter((batch) => batch !== null).map((batch) => batch.establishmentId)));
+  const repository = getEstablishmentRepository();
+  const establishments = new Map(await Promise.all(establishmentIds.map(async (id) =>
+    [id, await repository.findById(id)] as const
+  )));
+
+  const items: ReceiverReservationDetails[] = reservations.map((reservation) => {
+    const batch = batches.get(reservation.batchId);
+    const establishment = batch ? establishments.get(batch.establishmentId) : null;
+    return {
+      id: reservation.id, batchId: reservation.batchId, batchTitle: reservation.batchTitle,
+      quantity: reservation.quantity, status: reservation.status, createdAt: reservation.createdAt,
+      cancelledAt: reservation.cancelledAt, cancellationReason: reservation.cancellationReason,
+      pickupStartsAt: batch?.pickupStartsAt ?? null, pickupEndsAt: batch?.pickupEndsAt ?? null,
+      establishment: establishment ? {
+        id: establishment.id, name: establishment.name,
+        address: [
+          establishment.street + ', ' + establishment.number,
+          establishment.complement,
+          establishment.neighborhood,
+          establishment.city + '/' + establishment.state,
+          'CEP ' + establishment.zipCode,
+        ].filter(Boolean).join(' · '),
+      } : null,
+    };
+  });
+  const ids = new Set(items.map(({ id }) => id));
+  return [
+    ...items,
+    ...legacy.filter(({ id }) => !ids.has(id)).map((reservation) => ({
+      id: reservation.id, batchTitle: reservation.batchTitle, quantity: reservation.quantity,
+      status: reservation.status, establishment: null, pickupStartsAt: null, pickupEndsAt: null,
+    })),
+  ];
 }

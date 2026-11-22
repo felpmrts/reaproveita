@@ -191,3 +191,23 @@ describe('ST16 (SCRUM-91) — ReceiverReservationsList', () => {
     ).toBeInTheDocument();
   });
 });
+
+it('exibe estabelecimento, endereço e datas e atualiza o status pelo endpoint', async () => {
+  const reservation = makeReservation({
+    establishment: { id: 'est', name: 'Padaria da Praça', address: 'Avenida Brasil, 10 · Centro' },
+    pickupStartsAt: '2026-11-22T12:00:00Z', pickupEndsAt: '2026-11-22T18:00:00Z',
+  });
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true, status: 200,
+    json: async () => ({ success: true, data: [{ ...reservation, status: 'COMPLETED' }] }),
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(<ReceiverReservationsList initialReservations={[reservation]} />);
+  expect(screen.getByText('Padaria da Praça')).toBeInTheDocument();
+  expect(screen.getByText(/Avenida Brasil, 10/)).toBeInTheDocument();
+  expect(screen.getByText('22/11/2026, 09:00 até 22/11/2026, 15:00')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Atualizar reservas' }));
+  expect(await screen.findByText('Concluída')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Cancelar reserva' })).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith('/api/receiver/reservations', expect.objectContaining({ cache: 'no-store' }));
+});
